@@ -7,14 +7,17 @@ from email.mime.text import MIMEText
 from fastapi import FastAPI
 from google import genai
 
+# 1. Initialize FastAPI app first
 app = FastAPI()
 
+# 2. Configurations & Environment Variables
 IMAP_SERVER = "imap.gmail.com"
 SMTP_SERVER = "smtp.gmail.com"
 BOT_EMAIL = os.environ.get("BOT_EMAIL")
 BOT_PASSWORD = os.environ.get("BOT_PASSWORD")
 MY_PERSONAL_EMAIL = os.environ.get("MY_PERSONAL_EMAIL")
 
+# 3. Initialize Gemini Client
 client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 
 
@@ -48,6 +51,7 @@ def send_email(subject, body):
   server.quit()
 
 
+# 4. API Routes
 @app.get("/")
 def home():
   return {"status": "Jarvis Cloud Server is Online!"}
@@ -60,29 +64,30 @@ def check_inbox_endpoint():
     mail.login(BOT_EMAIL, BOT_PASSWORD)
     mail.select("inbox")
 
-    # Safe, simple search that won't throw parse errors
-    status, messages = mail.search(None, "UNREAD")
-    processed_count = `0`
+    # Use UNSEEN for standard Gmail IMAP unread filtering
+    status, messages = mail.search(None, "UNSEEN")
+    processed_count = 0
 
-    for num in messages[0].split():
-      status, data = mail.fetch(num, "(RFC822)")
-      for response_part in data:
-        if isinstance(response_part, tuple):
-          msg = email.message_from_bytes(response_part[1])
-          subject = msg["subject"] or "Untitled Project"
+    if status == "OK" and messages[0]:
+      for num in messages[0].split():
+        status, data = mail.fetch(num, "(RFC822)")
+        for response_part in data:
+          if isinstance(response_part, tuple):
+            msg = email.message_from_bytes(response_part[1])
+            subject = msg["subject"] or "Untitled Project"
 
-          body = ""
-          if msg.is_multipart():
-            for part in msg.walk():
-              if part.get_content_type() == "text/plain":
-                body = part.get_payload(decode=True).decode(errors="ignore")
-          else:
-            body = msg.get_payload(decode=True).decode(errors="ignore")
+            body = ""
+            if msg.is_multipart():
+              for part in msg.walk():
+                if part.get_content_type() == "text/plain":
+                  body = part.get_payload(decode=True).decode(errors="ignore")
+            else:
+              body = msg.get_payload(decode=True).decode(errors="ignore")
 
-          ai_result = ask_jarvis(body)
-          send_email(subject, ai_result)
-          mail.store(num, "+FLAGS", "\\Seen")
-          processed_count += 1
+            ai_result = ask_jarvis(body)
+            send_email(subject, ai_result)
+            mail.store(num, "+FLAGS", "\\Seen")
+            processed_count += 1
 
     mail.logout()
     return {"success": True, "processed_tasks": processed_count}
