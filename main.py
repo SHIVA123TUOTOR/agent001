@@ -1,60 +1,78 @@
+import base64
 import email
 import email.policy
 import io
 import imaplib
+import json
 import os
 import re
-import smtplib
+import urllib.request
 import zipfile
-from email.mime.application import MIMEApplication
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
 from fastapi import FastAPI
 from google import genai
 
 app = FastAPI()
 
 IMAP_SERVER = "imap.gmail.com"
-SMTP_SERVER = "smtp.gmail.com"
-SMTP_PORT = 465  # Port 465 bypasses Render's port 587 block
-
 BOT_EMAIL = os.environ.get("BOT_EMAIL")
 BOT_PASSWORD = os.environ.get("BOT_PASSWORD")
 MY_PERSONAL_EMAIL = os.environ.get("MY_PERSONAL_EMAIL")
+RESEND_API_KEY = os.environ.get("RESEND_API_KEY")
 
 client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 
-# Store current project state in memory
 CURRENT_PROJECT_STATUS = {
     "name": "No active project",
     "details": "Waiting for your first task email.",
 }
 
 
-def send_zip_email(to_email, subject, description, zip_bytes, zip_filename):
+def send_zip_via_resend(to_email, subject, description, zip_bytes, zip_filename):
   try:
-    msg = MIMEMultipart()
-    msg["From"] = BOT_EMAIL
-    msg["To"] = to_email
-    msg["Subject"] = f"Jarvis Completed: {subject}"
-
-    # Attach description text
-    msg.attach(MIMEText(description, "plain"))
-
-    # Attach the Zip file
-    zip_attachment = MIMEApplication(zip_bytes, Name=zip_filename)
-    zip_attachment["Content-Disposition"] = (
-        f'attachment; filename="{zip_filename}"'
+    encoded_zip = base64.b64encode(zip_bytes).decode("utf-8")
+    payload = {
+        "from": "Jarvis <onboarding@resend.dev>",
+        "to": [to_email],
+        "subject": f"Jarvis Completed: {subject}",
+        "text": description,
+        "attachments": [{"filename": zip_filename, "content": encoded_zip}],
+    }
+    req = urllib.request.Request(
+        "https://api.resend.com/emails",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {RESEND_API_KEY}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
     )
-    msg.attach(zip_attachment)
-
-    # Send via SMTP_SSL on port 465
-    server = smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT)
-    server.login(BOT_EMAIL, BOT_PASSWORD)
-    server.sendmail(BOT_EMAIL, to_email, msg.as_string())
-    server.quit()
+    with urllib.request.urlopen(req) as response:
+      response.read()
   except Exception as e:
-    print(f"SMTP Error: {e}")
+    print(f"Cloud Email Error: {e}")
+
+
+def send_text_via_resend(to_email, subject, body):
+  try:
+    payload = {
+        "from": "Jarvis <onboarding@resend.dev>",
+        "to": [to_email],
+        "subject": f"Re: {subject}",
+        "text": body,
+    }
+    req = urllib.request.Request(
+        "https://api.resend.com/emails",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {RESEND_API_KEY}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(req) as response:
+      response.read()
+  except Exception as e:
+    print(f"Cloud Status Email Error: {e}")
 
 
 def ask_jarvis_for_project(prompt):
@@ -78,7 +96,7 @@ def ask_jarvis_for_project(prompt):
 
 @app.get("/")
 def home():
-  return {"status": "Jarvis Mail & Zip Server is Online!"}
+  return {"status": "Jarvis Cloud Mail & Zip Server is Online!"}
 
 
 @app.get("/check")
@@ -104,7 +122,6 @@ def check_inbox_endpoint():
             subject = msg["subject"] or "Untitled Project"
             subject_lower = subject.lower()
 
-            # Extract email body text
             body = ""
             if msg.is_multipart():
               for part in msg.walk():
@@ -113,7 +130,6 @@ def check_inbox_endpoint():
             else:
               body = msg.get_payload(decode=True).decode(errors="ignore")
 
-            # Check if user is asking for progress/status
             if (
                 "status" in subject_lower
                 or "progress" in subject_lower
@@ -123,35 +139,21 @@ def check_inbox_endpoint():
                   f"Active Project: {CURRENT_PROJECT_STATUS['name']}\n\n"
                   f"Status Details:\n{CURRENT_PROJECT_STATUS['details']}"
               )
-              status_msg = MIMEMultipart()
-              status_msg["From"] = BOT_EMAIL
-              status_msg["To"] = MY_PERSONAL_EMAIL
-              status_msg["Subject"] = f"Re: {subject}"
-              status_msg.attach(MIMEText(reply_body, "plain"))
-
-              server = smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT)
-              server.login(BOT_EMAIL, BOT_PASSWORD)
-              server.sendmail(BOT_EMAIL, MY_PERSONAL_EMAIL, status_msg.as_string())
-              server.quit()
-
+              send_text_via_resend(MY_PERSONAL_EMAIL, subject, reply_body)
             else:
-              # Update current project state
               CURRENT_PROJECT_STATUS["name"] = subject
               CURRENT_PROJECT_STATUS["details"] = (
                   f"Generating code files for request: {body}"
               )
 
-              # Generate code structure from Gemini
               raw_ai_output = ask_jarvis_for_project(body)
 
-              # Parse files using the === FILE: name === format
               file_pattern = re.compile(
                   r"=== FILE: (.+?) ===\n(.*?)\n==========================",
                   re.DOTALL,
               )
               matches = file_pattern.findall(raw_ai_output)
 
-              # Create an in-memory zip file
               zip_buffer = io.BytesIO()
               with zipfile.ZipFile(
                   zip_buffer, "w", zipfile.ZIP_DEFLATED
@@ -160,7 +162,6 @@ def check_inbox_endpoint():
                   for filename, content in matches:
                     zip_file.writestr(filename.strip(), content.strip())
                 else:
-                  # Fallback if AI didn't format cleanly
                   zip_file.writestr("project_output.txt", raw_ai_output)
 
               zip_buffer.seek(0)
@@ -175,20 +176,17 @@ def check_inbox_endpoint():
                   f"All structured code files have been zipped and attached to this email."
               )
 
-              # Send the zip file via email
-              send_zip_email(
+              send_zip_via_resend(
                   MY_PERSONAL_EMAIL,
                   subject,
                   description,
                   zip_buffer.getvalue(),
                   safe_zip_name,
               )
-
               CURRENT_PROJECT_STATUS["details"] = (
-                  f"Successfully completed and emailed zip file: {safe_zip_name}"
+                  f"Successfully completed and emailed zip: {safe_zip_name}"
               )
 
-            # Mark email as read
             mail.store(num, "+FLAGS", "\\Seen")
             processed_count += 1
 
