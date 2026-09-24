@@ -123,9 +123,6 @@ def check_inbox_endpoint():
                   f"Active Project: {CURRENT_PROJECT_STATUS['name']}\n\n"
                   f"Status Details:\n{CURRENT_PROJECT_STATUS['details']}"
               )
-              # Send normal text status reply
-              from email.mime.text import MIMEText
-
               status_msg = MIMEMultipart()
               status_msg["From"] = BOT_EMAIL
               status_msg["To"] = MY_PERSONAL_EMAIL
@@ -160,8 +157,8 @@ def check_inbox_endpoint():
                   zip_buffer, "w", zipfile.ZIP_DEFLATED
               ) as zip_file:
                 if matches:
-                  for filename, content.strip() in matches:
-                    zip_file.writestr(filename.strip(), content)
+                  for filename, content in matches:
+                    zip_file.writestr(filename.strip(), content.strip())
                 else:
                   # Fallback if AI didn't format cleanly
                   zip_file.writestr("project_output.txt", raw_ai_output)
