@@ -7,17 +7,14 @@ from email.mime.text import MIMEText
 from fastapi import FastAPI
 from google import genai
 
-# 1. DEFINE APP FIRST
 app = FastAPI()
 
-# Cloud configuration
 IMAP_SERVER = "imap.gmail.com"
 SMTP_SERVER = "smtp.gmail.com"
 BOT_EMAIL = os.environ.get("BOT_EMAIL")
 BOT_PASSWORD = os.environ.get("BOT_PASSWORD")
 MY_PERSONAL_EMAIL = os.environ.get("MY_PERSONAL_EMAIL")
 
-# Initialize Gemini Client
 client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 
 
@@ -51,7 +48,6 @@ def send_email(subject, body):
   server.quit()
 
 
-# 2. ROUTES COME AFTER app = FastAPI()
 @app.get("/")
 def home():
   return {"status": "Jarvis Cloud Server is Online!"}
@@ -64,22 +60,15 @@ def check_inbox_endpoint():
     mail.login(BOT_EMAIL, BOT_PASSWORD)
     mail.select("inbox")
 
+    # Safe, simple search that won't throw parse errors
     status, messages = mail.search(None, "UNREAD")
-    processed_count = 0
+    processed_count = `0`
 
     for num in messages[0].split():
       status, data = mail.fetch(num, "(RFC822)")
       for response_part in data:
         if isinstance(response_part, tuple):
           msg = email.message_from_bytes(response_part[1])
-          sender_header = msg.get("From", "")
-
-          if (
-              MY_PERSONAL_EMAIL
-              and MY_PERSONAL_EMAIL.lower() not in sender_header.lower()
-          ):
-            continue
-
           subject = msg["subject"] or "Untitled Project"
 
           body = ""
