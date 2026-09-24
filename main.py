@@ -78,7 +78,7 @@ def send_text_via_resend(to_email, subject, body):
 def ask_jarvis_for_project(prompt):
   try:
     response = client.models.generate_content(
-        model="gemini-2.5-flash",
+        model="gemini-3.5-flash",
         contents=(
             "You are Jarvis, an elite personal AI software developer. "
             f"The user requested this project/task: {prompt}\n\n"
