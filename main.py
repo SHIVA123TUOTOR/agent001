@@ -71,6 +71,33 @@ def get_best_available_model():
     return "llama-3.1-8b-instant"
 
 
+def classify_intent(text):
+  """Uses Groq to intelligently determine if the user wants code/projects or a conversational reply."""
+  target_model = get_best_available_model()
+  try:
+    completion = groq_client.chat.completions.create(
+        model=target_model,
+        messages=[
+            {
+                "role": "system",
+                (
+                    "You are an intent classifier. Read the user's message and"
+                    " decide if they are asking for code, a script, an app, a"
+                    " game, or a software project to be built. Reply with"
+                    " exactly one word: 'CODE' or 'CHAT'."
+                ),
+            },
+            {"role": "user", "content": text},
+        ],
+        temperature=0.0,
+        max_tokens=5,
+    )
+    result = completion.choices[0].message.content.strip().upper()
+    return "CODE" if "CODE" in result else "CHAT"
+  except Exception:
+    return "CHAT"
+
+
 def ask_jarvis_conversational(prompt):
   target_model = get_best_available_model()
   completion = groq_client.chat.completions.create(
@@ -148,17 +175,7 @@ def process_inbox_tasks():
             else:
               body = msg.get_payload(decode=True).decode(errors="ignore")
 
-            code_keywords = [
-                "code",
-                "build",
-                "app",
-                "script",
-                "program",
-                "project",
-                "create",
-                "write a",
-            ]
-            is_code_request = any(kw in body.lower() for kw in code_keywords)
+            full_content = f"Subject: {subject}\nBody: {body}"
 
             if (
                 "status" in subject_lower
@@ -171,58 +188,60 @@ def process_inbox_tasks():
                   f"Details: {CURRENT_PROJECT_STATUS['details']}"
               )
               send_text_via_resend(MY_PERSONAL_EMAIL, subject, reply_body)
-
-            elif not is_code_request:
-              ai_response = ask_jarvis_conversational(body)
-              send_text_via_resend(MY_PERSONAL_EMAIL, subject, ai_response)
-              CURRENT_PROJECT_STATUS["details"] = (
-                  f"Handled inquiry from Boss: {subject}"
-              )
-
             else:
-              CURRENT_PROJECT_STATUS["name"] = subject
-              CURRENT_PROJECT_STATUS["details"] = (
-                  f"Compiling code architecture for directive: {body}"
-              )
+              # Let Groq decide whether this is a code request or conversational chat
+              intent = classify_intent(full_content)
 
-              raw_ai_output = ask_jarvis_for_code_project(body)
+              if intent == "CHAT":
+                ai_response = ask_jarvis_conversational(full_content)
+                send_text_via_resend(MY_PERSONAL_EMAIL, subject, ai_response)
+                CURRENT_PROJECT_STATUS["details"] = (
+                    f"Handled inquiry from Boss: {subject}"
+                )
+              else:
+                CURRENT_PROJECT_STATUS["name"] = subject
+                CURRENT_PROJECT_STATUS["details"] = (
+                    f"Compiling code architecture for directive: {subject}"
+                )
 
-              file_pattern = re.compile(
-                  r"=== FILE: (.+?) ===\n(.*?)\n==========================",
-                  re.DOTALL,
-              )
-              matches = file_pattern.findall(raw_ai_output)
+                raw_ai_output = ask_jarvis_for_code_project(full_content)
 
-              zip_buffer = io.BytesIO()
-              with zipfile.ZipFile(
-                  zip_buffer, "w", zipfile.ZIP_DEFLATED
-              ) as zip_file:
-                if matches:
-                  for filename, content in matches:
-                    zip_file.writestr(filename.strip(), content.strip())
-                else:
-                  zip_file.writestr("solution.py", raw_ai_output)
+                file_pattern = re.compile(
+                    r"=== FILE: (.+?) ===\n(.*?)\n==========================",
+                    re.DOTALL,
+                )
+                matches = file_pattern.findall(raw_ai_output)
 
-              zip_buffer.seek(0)
-              safe_zip_name = (
-                  re.sub(r"[^a-zA-Z0-9_-]", "_", subject) + ".zip"
-              )
+                zip_buffer = io.BytesIO()
+                with zipfile.ZipFile(
+                    zip_buffer, "w", zipfile.ZIP_DEFLATED
+                ) as zip_file:
+                  if matches:
+                    for filename, content in matches:
+                      zip_file.writestr(filename.strip(), content.strip())
+                  else:
+                    zip_file.writestr("solution.py", raw_ai_output)
 
-              description = (
-                  f"Boss,\n\nI have compiled your requested architecture for '{subject}'.\n\n"
-                  "All source files have been structured with proper extensions and zipped into the attached package for immediate deployment."
-              )
+                zip_buffer.seek(0)
+                safe_zip_name = (
+                    re.sub(r"[^a-zA-Z0-9_-]", "_", subject) + ".zip"
+                )
 
-              send_zip_via_resend(
-                  MY_PERSONAL_EMAIL,
-                  subject,
-                  description,
-                  zip_buffer.getvalue(),
-                  safe_zip_name,
-              )
-              CURRENT_PROJECT_STATUS["details"] = (
-                  f"Successfully deployed code package: {safe_zip_name}"
-              )
+                description = (
+                    f"Boss,\n\nI have compiled your requested architecture for '{subject}'.\n\n"
+                    "All source files have been structured with proper extensions and zipped into the attached package for immediate deployment."
+                )
+
+                send_zip_via_resend(
+                    MY_PERSONAL_EMAIL,
+                    subject,
+                    description,
+                    zip_buffer.getvalue(),
+                    safe_zip_name,
+                )
+                CURRENT_PROJECT_STATUS["details"] = (
+                    f"Successfully deployed code package: {safe_zip_name}"
+                )
 
             mail.store(num, "+FLAGS", "\\Seen")
 
@@ -235,10 +254,9 @@ def background_poller():
   """Runs indefinitely in the background, checking the inbox every 5 seconds."""
   while True:
     process_inbox_tasks()
-    time.sleep(5)  # Set to 5-second polling interval
+    time.sleep(5)
 
 
-# Start the background polling thread when the FastAPI app boots up
 @app.on_event("startup")
 def startup_event():
   poller_thread = threading.Thread(target=background_poller, daemon=True)
@@ -249,14 +267,14 @@ def startup_event():
 def home():
   return {
       "status": (
-          "Jarvis Technologies OS (Lightning 5-Sec Polling Active, Boss)"
+          "Jarvis Technologies OS (AI Intent Classification & 5-Sec Polling"
+          " Active, Boss)"
       )
   }
 
 
 @app.get("/check")
 def check_inbox_endpoint():
-  """Manual trigger fallback endpoint"""
   process_inbox_tasks()
   return {
       "success": True,
