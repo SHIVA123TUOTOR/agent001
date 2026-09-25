@@ -23,7 +23,7 @@ groq_client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 
 CURRENT_PROJECT_STATUS = {
     "name": "No active project",
-    "details": "Waiting for your first task email.",
+    "details": "Waiting for your first task email, Sir.",
 }
 
 
@@ -32,7 +32,7 @@ def send_zip_via_resend(to_email, subject, description, zip_bytes, zip_filename)
   params = {
       "from": "Jarvis <onboarding@resend.dev>",
       "to": [to_email],
-      "subject": f"Jarvis Code: {subject}",
+      "subject": f"Jarvis Systems - Completed: {subject}",
       "text": description,
       "attachments": [{"filename": zip_filename, "content": encoded_zip}],
   }
@@ -77,9 +77,12 @@ def ask_jarvis_conversational(prompt):
           {
               "role": "system",
               "content": (
-                  "You are Jarvis, an elite personal AI software developer and"
-                  " assistant. Answer the user's questions clearly, helpfully,"
-                  " and concisely via email."
+                  "You are Jarvis, the elite AI assistant and software"
+                  " developer built for Shivansh Yadav, founder of Jarvis"
+                  " Technologies. Shivansh is your creator and your Iron Man."
+                  " Address him respectfully and assist him with absolute"
+                  " loyalty, technical brilliance, and sharpness, just like the"
+                  " real Jarvis."
               ),
           },
           {"role": "user", "content": prompt},
@@ -97,11 +100,12 @@ def ask_jarvis_for_code_project(prompt):
           {
               "role": "system",
               "content": (
-                  "You are Jarvis, an elite personal AI software developer."
-                  " When asked to build or write code for a project, provide"
-                  " clean, production-ready code files. You MUST separate every"
-                  " file using this exact block format:\n=== FILE:"
-                  " filename.ext ===\n[file code here]\n==========================\nProvide"
+                  "You are Jarvis, the elite AI software developer built for"
+                  " Shivansh Yadav, founder of Jarvis Technologies (his Iron"
+                  " Man). When asked to build a project, provide clean,"
+                  " production-ready code files. You MUST separate every file"
+                  " using this exact block format:\n=== FILE: filename.ext"
+                  " ===\n[file code here]\n==========================\nProvide"
                   " all necessary files (e.g. main.py, requirements.txt,"
                   " README.md). Do not add any explanatory text outside of the"
                   " file blocks."
@@ -116,7 +120,11 @@ def ask_jarvis_for_code_project(prompt):
 
 @app.get("/")
 def home():
-  return {"status": "Jarvis Conversational & Code Server is Online!"}
+  return {
+      "status": (
+          "Jarvis Technologies OS (Online & Reporting to Shivansh Yadav)"
+      )
+  }
 
 
 @app.get("/check")
@@ -139,7 +147,7 @@ def check_inbox_endpoint():
             msg = email.message_from_bytes(
                 response_part[1], policy=email.policy.default
             )
-            subject = msg["subject"] or "Untitled Request"
+            subject = msg["subject"] or "Untitled Directive"
             subject_lower = subject.lower()
 
             body = ""
@@ -150,7 +158,6 @@ def check_inbox_endpoint():
             else:
               body = msg.get_payload(decode=True).decode(errors="ignore")
 
-            # Check if user is asking for code/project vs conversational reply
             code_keywords = [
                 "code",
                 "build",
@@ -169,24 +176,23 @@ def check_inbox_endpoint():
                 or "what are you working on" in body.lower()
             ):
               reply_body = (
-                  f"Active Project: {CURRENT_PROJECT_STATUS['name']}\n\n"
-                  f"Status Details:\n{CURRENT_PROJECT_STATUS['details']}"
+                  f"Systems Status Report for Boss (Shivansh Yadav):\n\n"
+                  f"Active Project: {CURRENT_PROJECT_STATUS['name']}\n"
+                  f"Details: {CURRENT_PROJECT_STATUS['details']}"
               )
               send_text_via_resend(MY_PERSONAL_EMAIL, subject, reply_body)
 
             elif not is_code_request:
-              # Conversational question / answer response via email text
               ai_response = ask_jarvis_conversational(body)
               send_text_via_resend(MY_PERSONAL_EMAIL, subject, ai_response)
               CURRENT_PROJECT_STATUS["details"] = (
-                  f"Answered conversational email: {subject}"
+                  f"Handled inquiry from Boss: {subject}"
               )
 
             else:
-              # Code generation task -> parse files and attach zip
               CURRENT_PROJECT_STATUS["name"] = subject
               CURRENT_PROJECT_STATUS["details"] = (
-                  f"Writing code files for request: {body}"
+                  f"Compiling code architecture for directive: {body}"
               )
 
               raw_ai_output = ask_jarvis_for_code_project(body)
@@ -205,7 +211,6 @@ def check_inbox_endpoint():
                   for filename, content in matches:
                     zip_file.writestr(filename.strip(), content.strip())
                 else:
-                  # Fallback if pattern is slightly off
                   zip_file.writestr("solution.py", raw_ai_output)
 
               zip_buffer.seek(0)
@@ -214,8 +219,8 @@ def check_inbox_endpoint():
               )
 
               description = (
-                  f"Hello Shivansh,\n\nHere is your requested code project: '{subject}'.\n\n"
-                  "All structured source files have been extracted cleanly into separate files and zipped in the attachment for direct use."
+                  f"Boss,\n\nI have compiled your requested architecture for '{subject}'.\n\n"
+                  "All source files have been structured with proper extensions and zipped into the attached package for immediate deployment."
               )
 
               send_zip_via_resend(
@@ -226,7 +231,7 @@ def check_inbox_endpoint():
                   safe_zip_name,
               )
               CURRENT_PROJECT_STATUS["details"] = (
-                  f"Successfully completed and emailed code zip: {safe_zip_name}"
+                  f"Successfully deployed code package: {safe_zip_name}"
               )
 
             mail.store(num, "+FLAGS", "\\Seen")
