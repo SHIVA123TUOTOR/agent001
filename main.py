@@ -32,6 +32,9 @@ CURRENT_PROJECT_STATUS = {
     ),
 }
 
+# Project conversation history store for threaded iteration
+PROJECT_CONVERSATIONS = {}
+
 
 def send_zip_via_resend(to_email, subject, description, zip_bytes, zip_filename):
   try:
@@ -131,19 +134,19 @@ def ask_jarvis_conversational(prompt):
   return completion.choices[0].message.content
 
 
-def ask_jarvis_for_json_project(prompt):
+def ask_jarvis_for_json_project(history):
   target_model = get_best_available_model()
   system_instruction = (
       "You are Jarvis, elite software developer for Shivansh Yadav (Jarvis Technologies).\n\n"
-      "When Boss asks for a project, website, code, or game, you must design a fully functional, "
-      "zero-error, standalone project. Put all code directly into the appropriate files "
-      "(e.g., index.html, css/styles.css, js/script.js, main.py). Never tell the Boss to manually "
-      "create or download external assets; generate self-contained inline code or proper links.\n\n"
+      "You are working with Boss on an ongoing project. When Boss replies with feedback, "
+      "bug fixes, or requests for new features, you must update the entire project files "
+      "(e.g., index.html, css/styles.css, js/script.js, main.py) to incorporate the changes. "
+      "Never tell the Boss to manually create or download external assets; generate self-contained inline code or proper links.\n\n"
       "Return your response STRICTLY as a valid JSON object with NO markdown formatting, "
       "no backticks, and no extra text outside the JSON. \n\n"
       "Required JSON Format:\n"
       "{\n"
-      '  "email_description": "A respectful, polished message from Jarvis to Boss explaining the completed project attached as a zip file.",\n'
+      '  "email_description": "A respectful, polished message from Jarvis to Boss explaining the updates made to the project zip file.",\n'
       '  "files": {\n'
       '    "index.html": "<!DOCTYPE html>...",\n'
       '    "css/styles.css": "...",\n'
@@ -153,12 +156,10 @@ def ask_jarvis_for_json_project(prompt):
   )
 
   try:
+    messages = [{"role": "system", "content": system_instruction}] + history
     completion = groq_client.chat.completions.create(
         model=target_model,
-        messages=[
-            {"role": "system", "content": system_instruction},
-            {"role": "user", "content": prompt},
-        ],
+        messages=messages,
         temperature=0.2,
     )
 
@@ -205,6 +206,10 @@ def process_inbox_tasks():
                 response_part[1], policy=email.policy.default
             )
             subject = msg["subject"] or "Untitled Directive"
+            # Normalize subject by removing 'Re: ' prefixes to group conversation threads
+            clean_subject = re.sub(
+                r"^(Re:\s*)+", "", subject, flags=re.IGNORECASE
+            ).strip()
             subject_lower = subject.lower()
 
             body = ""
@@ -214,6 +219,13 @@ def process_inbox_tasks():
                   body = part.get_payload(decode=True).decode(errors="ignore")
             else:
               body = msg.get_payload(decode=True).decode(errors="ignore")
+
+            # Initialize or update conversation thread history
+            if clean_subject not in PROJECT_CONVERSATIONS:
+              PROJECT_CONVERSATIONS[clean_subject] = []
+            PROJECT_CONVERSATIONS[clean_subject].append(
+                {"role": "user", "content": body}
+            )
 
             full_content = f"Subject: {subject}\nBody: {body}"
 
@@ -260,17 +272,20 @@ def process_inbox_tasks():
                     f"Handled inquiry from Boss: {subject}"
                 )
               else:
-                CURRENT_PROJECT_STATUS["name"] = subject
+                CURRENT_PROJECT_STATUS["name"] = clean_subject
                 CURRENT_PROJECT_STATUS["details"] = (
-                    f"Compiling project and generating mandatory zip package"
-                    f" for: {subject}"
+                    f"Compiling project updates and generating zip package"
+                    f" for: {clean_subject}"
                 )
 
-                project_data = ask_jarvis_for_json_project(full_content)
+                # Pass the full thread history to Jarvis
+                project_data = ask_jarvis_for_json_project(
+                    PROJECT_CONVERSATIONS[clean_subject]
+                )
 
                 description = project_data.get(
                     "email_description",
-                    f"Boss,\n\nYour requested project package for '{subject}'"
+                    f"Boss,\n\nYour updated project package for '{clean_subject}'"
                     " has been compiled into the attached zip file.",
                 )
                 files_dict = project_data.get(
@@ -287,7 +302,7 @@ def process_inbox_tasks():
 
                 zip_buffer.seek(0)
                 safe_zip_name = (
-                    re.sub(r"[^a-zA-z0-9_-]", "_", subject) + ".zip"
+                    re.sub(r"[^a-zA-z0-9_-]", "_", clean_subject) + ".zip"
                 )
 
                 # DISPATCH ZIP ATTACHMENT TO BOSS
@@ -299,7 +314,7 @@ def process_inbox_tasks():
                     safe_zip_name,
                 )
                 CURRENT_PROJECT_STATUS["details"] = (
-                    f"Successfully delivered zip package: {safe_zip_name}"
+                    f"Successfully delivered updated zip package: {safe_zip_name}"
                 )
 
             mail.store(num, "+FLAGS", "\\Seen")
