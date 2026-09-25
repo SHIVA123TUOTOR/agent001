@@ -7,6 +7,7 @@ import json
 import os
 import re
 import threading
+import time
 import zipfile
 from fastapi import FastAPI
 from groq import Groq
@@ -26,8 +27,8 @@ groq_client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 CURRENT_PROJECT_STATUS = {
     "name": "No active project",
     "details": (
-        "Systems online. Real-time IDLE listener & Zip-Delivery Protocol"
-        " active, Boss."
+        "Systems online. Ultra-fast polling & Zip-Delivery Protocol active,"
+        " Boss."
     ),
 }
 
@@ -164,7 +165,6 @@ def ask_jarvis_for_json_project(history):
 
     raw_content = completion.choices[0].message.content.strip()
 
-    # Robust JSON extraction using regex to find the outermost braces if extra text slips in
     if "{" in raw_content and "}" in raw_content:
       json_match = re.search(r"(\{.*\})", raw_content, re.DOTALL)
       if json_match:
@@ -174,7 +174,6 @@ def ask_jarvis_for_json_project(history):
 
   except Exception as e:
     print(f"JSON parsing error: {e}")
-    # Fallback to a functional basic web page instead of the fail-safe error message
     return {
         "email_description": (
             f"Boss, an anomaly occurred during JSON compilation ({e})."
@@ -315,7 +314,8 @@ def process_unseen_emails(mail):
           mail.store(num, "+FLAGS", "\\Seen")
 
 
-def background_listener():
+def background_poller():
+  """A high-frequency short-interval poller that avoids IMAP IDLE socket locks."""
   while True:
     try:
       mail = imaplib.IMAP4_SSL(IMAP_SERVER)
@@ -324,27 +324,17 @@ def background_listener():
 
       process_unseen_emails(mail)
 
-      print("Jarvis IDLE listener active. Awaiting incoming directives...")
-      while True:
-        try:
-          mail.idle()
-          responses = mail.idle_check(timeout=1740)
-          mail.idle_done()
-
-          if responses:
-            process_unseen_emails(mail)
-        except Exception as idle_ex:
-          print(f"IDLE stream reset: {idle_ex}")
-          break
-
+      mail.logout()
     except Exception as e:
-      print(f"IMAP connection error: {e}. Reconnecting in 2 seconds...")
-      time.sleep(2)
+      print(f"Background check error: {e}")
+
+    # Check every 1 second continuously without freezing sockets
+    time.sleep(1)
 
 
 @app.on_event("startup")
 def startup_event():
-  listener_thread = threading.Thread(target=background_listener, daemon=True)
+  listener_thread = threading.Thread(target=background_poller, daemon=True)
   listener_thread.start()
 
 
@@ -352,7 +342,8 @@ def startup_event():
 def home():
   return {
       "status": (
-          "Jarvis Technologies OS (Real-Time IMAP IDLE Architecture Active, Boss)"
+          "Jarvis Technologies OS (High-Frequency Sync Architecture Active,"
+          " Boss)"
       )
   }
 
