@@ -26,15 +26,15 @@ groq_client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 
 CURRENT_PROJECT_STATUS = {
     "name": "No active project",
-    "details": "Systems online. High-frequency sync active, Boss.",
+    "details": "Systems online. Debug sync active, Boss.",
 }
 
-# Project conversation history store for threaded iteration
 PROJECT_CONVERSATIONS = {}
 
 
 def send_zip_via_resend(to_email, subject, description, zip_bytes, zip_filename):
   try:
+    print(f"Attempting to send zip attachment to {to_email}...")
     encoded_zip = base64.b64encode(zip_bytes).decode("utf-8")
     params = {
         "from": "Jarvis <onboarding@resend.dev>",
@@ -43,23 +43,25 @@ def send_zip_via_resend(to_email, subject, description, zip_bytes, zip_filename)
         "text": description,
         "attachments": [{"filename": zip_filename, "content": encoded_zip}],
     }
-    resend.Emails.send(params)
-    print(f"Successfully sent zip email to {to_email}")
+    response = resend.Emails.send(params)
+    print(f"Resend Zip Success Response: {response}")
   except Exception as e:
-    print(f"Failed to send email with attachment: {e}")
+    print(f"CRITICAL RESEND ZIP ERROR: {e}")
 
 
 def send_text_via_resend(to_email, subject, body):
   try:
+    print(f"Attempting to send text email to {to_email}...")
     params = {
         "from": "Jarvis <onboarding@resend.dev>",
         "to": [to_email],
         "subject": f"Re: {subject}",
         "text": body,
     }
-    resend.Emails.send(params)
+    response = resend.Emails.send(params)
+    print(f"Resend Text Success Response: {response}")
   except Exception as e:
-    print(f"Failed to send text email: {e}")
+    print(f"CRITICAL RESEND TEXT ERROR: {e}")
 
 
 def get_best_available_model():
@@ -137,6 +139,7 @@ def ask_jarvis_conversational(prompt):
 
 def ask_jarvis_for_json_project(history):
   target_model = get_best_available_model()
+  print(f"Querying Groq model ({target_model}) for project generation...")
   system_instruction = (
       "You are Jarvis, elite software developer for Shivansh Yadav (Jarvis Technologies).\n\n"
       "You are working with Boss on an ongoing project. When Boss replies with feedback, "
@@ -165,17 +168,19 @@ def ask_jarvis_for_json_project(history):
     )
 
     raw_content = completion.choices[0].message.content.strip()
+    print("Received response from Groq. Parsing JSON...")
 
     if "{" in raw_content and "}" in raw_content:
       json_match = re.search(r"(\{.*\})", raw_content, re.DOTALL)
       if json_match:
         raw_content = json_match.group(1)
 
-    return json.loads(raw_content)
+    parsed = json.loads(raw_content)
+    print("JSON successfully parsed!")
+    return parsed
 
   except Exception as e:
-    print(f"JSON parsing error: {e}")
-    # Return a functional template reflecting the user's prompt request if possible
+    print(f"JSON parsing error encountered: {e}")
     return {
         "email_description": (
             f"Boss, an anomaly occurred during JSON compilation ({e})."
@@ -208,7 +213,10 @@ def process_unseen_emails(mail):
   status, messages = mail.search(None, "(UNSEEN)")
 
   if status == "OK" and messages[0]:
-    for num in messages[0].split():
+    msg_nums = messages[0].split()
+    print(f"Found {len(msg_nums)} unseen email(s). Processing...")
+
+    for num in msg_nums:
       status, data = mail.fetch(num, "(RFC822)")
       for response_part in data:
         if isinstance(response_part, tuple):
@@ -220,6 +228,8 @@ def process_unseen_emails(mail):
               r"^(Re:\s*)+", "", subject, flags=re.IGNORECASE
           ).strip()
           subject_lower = subject.lower()
+
+          print(f"Processing incoming subject: '{subject}'")
 
           body = ""
           if msg.is_multipart():
@@ -272,6 +282,7 @@ def process_unseen_emails(mail):
             intent = (
                 "CODE" if is_explicit_project_request else classify_intent(full_content)
             )
+            print(f"Classified intent: {intent}")
 
             if intent == "CHAT":
               ai_response = ask_jarvis_conversational(full_content)
@@ -334,7 +345,7 @@ def background_poller():
       process_unseen_emails(mail)
       mail.logout()
     except Exception as e:
-      print(f"Background check error: {e}")
+      print(f"Background poller error: {e}")
     time.sleep(1)
 
 
@@ -347,10 +358,7 @@ def startup_event():
 @app.get("/")
 def home():
   return {
-      "status": (
-          "Jarvis Technologies OS (High-Frequency Sync Architecture Active,"
-          " Boss)"
-      )
+      "status": "Jarvis Technologies OS (Debug Trace Mode Active, Boss)"
   }
 
 
@@ -364,7 +372,7 @@ def check_inbox_endpoint():
     mail.logout()
     return {
         "success": True,
-        "message": "Manual inbox sync executed instantly.",
+        "message": "Manual debug inbox sync executed.",
         "sent_to": MY_PERSONAL_EMAIL,
     }
   except Exception as e:
