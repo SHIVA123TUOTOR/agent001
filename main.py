@@ -51,7 +51,7 @@ def send_text_via_resend(to_email, subject, body):
 
 def ask_jarvis_for_project(prompt):
   completion = groq_client.chat.completions.create(
-      model="llama-3.1-8b-instant",
+      model="llama-3.3-70b-versatile",
       messages=[
           {
               "role": "system",
