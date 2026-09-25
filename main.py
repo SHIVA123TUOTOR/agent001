@@ -131,15 +131,13 @@ def ask_jarvis_for_code_project(prompt):
           {
               "role": "system",
               "content": (
-                  "You are Jarvis, the elite AI software developer built for"
-                  " Shivansh Yadav, founder of Jarvis Technologies (his Iron"
-                  " Man). When asked to build a project, provide clean,"
-                  " production-ready code files. You MUST separate every file"
-                  " using this exact block format:\n=== FILE: filename.ext"
-                  " ===\n[file code here]\n==========================\nProvide"
-                  " all necessary files (e.g. main.py, requirements.txt,"
-                  " README.md). Do not add any explanatory text outside of the"
-                  " file blocks."
+                  "You are Jarvis, elite software developer for Shivansh Yadav"
+                  " (Jarvis Technologies). When asked to build a project, you"
+                  " MUST output files using this exact separator format:\n\n"
+                  "=== FILE: main.py ===\n[code here]\n=== END FILE ===\n\n=== FILE:"
+                  " requirements.txt ===\n[code here]\n=== END FILE ===\n\nDo"
+                  " not include conversational filler outside these file"
+                  " blocks."
               ),
           },
           {"role": "user", "content": prompt},
@@ -207,9 +205,11 @@ def process_inbox_tasks():
 
                 raw_ai_output = ask_jarvis_for_code_project(full_content)
 
+                # Robust parser supporting === FILE: name === ... === END FILE ===
+                # or fallback to standard markdown code blocks
                 file_pattern = re.compile(
-                    r"=== FILE: (.+?) ===\n(.*?)\n==========================",
-                    re.DOTALL,
+                    r"===\s*FILE:\s*(.+?)\s*===\s*(.*?)(?:===\s*END\s*FILE\s*===|$)",
+                    re.DOTALL | re.IGNORECASE,
                 )
                 matches = file_pattern.findall(raw_ai_output)
 
@@ -219,22 +219,39 @@ def process_inbox_tasks():
                 ) as zip_file:
                   if matches:
                     for filename, content in matches:
-                      zip_file.writestr(filename.strip(), content.strip())
+                      # Clean up any accidental markdown code wrappers inside the block
+                      clean_content = re.sub(
+                          r"^```[a-zA-Z]*\n", "", content.strip()
+                      )
+                      clean_content = re.sub(
+                          r"\n```\s*$", "", clean_content
+                      )
+                      zip_file.writestr(
+                          filename.strip(), clean_content.strip()
+                      )
                   else:
-                    zip_file.writestr("main.py", raw_ai_output)
+                    # Fallback: extract any markdown code blocks if specific headers failed
+                    md_blocks = re.findall(
+                        r"```(?:python)?\s*\n(.*?)\n```",
+                        raw_ai_output,
+                        re.DOTALL,
+                    )
+                    if md_blocks:
+                      zip_file.writestr("main.py", md_blocks[0].strip())
+                    else:
+                      zip_file.writestr("main.py", raw_ai_output)
 
                 zip_buffer.seek(0)
                 safe_zip_name = (
                     re.sub(r"[^a-zA-Z0-9_-]", "_", subject) + ".zip"
                 )
 
-                # Clean, instruction-only body text
                 description = (
                     f"Boss,\n\n"
-                    f"Your requested package for '{subject}' has been successfully compiled and attached as a .zip file.\n\n"
+                    f"Your requested package for '{subject}' has been successfully compiled into a structured zip archive and attached below.\n\n"
                     "--- INSTALLATION & USAGE ---\n"
                     "1. Extract the attached zip file into your project directory.\n"
-                    "2. Open your terminal in that directory and install the dependencies:\n"
+                    "2. Open your terminal in that directory and install dependencies:\n"
                     "   pip install python-chess\n"
                     "3. Run the application:\n"
                     "   python3 main.py\n\n"
@@ -275,8 +292,8 @@ def startup_event():
 def home():
   return {
       "status": (
-          "Jarvis Technologies OS (Zip Attachment Fix & Instructions Active,"
-          " Boss)"
+          "Jarvis Technologies OS (Robust Zip Parser & Clean Instructions"
+          " Active, Boss)"
       )
   }
 
