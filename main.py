@@ -30,15 +30,18 @@ CURRENT_PROJECT_STATUS = {
 
 
 def send_zip_via_resend(to_email, subject, description, zip_bytes, zip_filename):
-  encoded_zip = base64.b64encode(zip_bytes).decode("utf-8")
-  params = {
-      "from": "Jarvis <onboarding@resend.dev>",
-      "to": [to_email],
-      "subject": f"Jarvis Systems - Completed: {subject}",
-      "text": description,
-      "attachments": [{"filename": zip_filename, "content": encoded_zip}],
-  }
-  resend.Emails.send(params)
+  try:
+    encoded_zip = base64.b64encode(zip_bytes).decode("utf-8")
+    params = {
+        "from": "Jarvis <onboarding@resend.dev>",
+        "to": [to_email],
+        "subject": f"Jarvis Systems - Completed: {subject}",
+        "text": description,
+        "attachments": [{"filename": zip_filename, "content": encoded_zip}],
+    }
+    resend.Emails.send(params)
+  except Exception as e:
+    print(f"Failed to send email with attachment: {e}")
 
 
 def send_text_via_resend(to_email, subject, body):
@@ -72,7 +75,6 @@ def get_best_available_model():
 
 
 def classify_intent(text):
-  """Uses Groq to intelligently determine if the user wants code/projects or a conversational reply."""
   target_model = get_best_available_model()
   try:
     completion = groq_client.chat.completions.create(
@@ -219,16 +221,24 @@ def process_inbox_tasks():
                     for filename, content in matches:
                       zip_file.writestr(filename.strip(), content.strip())
                   else:
-                    zip_file.writestr("solution.py", raw_ai_output)
+                    zip_file.writestr("main.py", raw_ai_output)
 
                 zip_buffer.seek(0)
                 safe_zip_name = (
                     re.sub(r"[^a-zA-Z0-9_-]", "_", subject) + ".zip"
                 )
 
+                # Clean, instruction-only body text
                 description = (
-                    f"Boss,\n\nI have compiled your requested architecture for '{subject}'.\n\n"
-                    "All source files have been structured with proper extensions and zipped into the attached package for immediate deployment."
+                    f"Boss,\n\n"
+                    f"Your requested package for '{subject}' has been successfully compiled and attached as a .zip file.\n\n"
+                    "--- INSTALLATION & USAGE ---\n"
+                    "1. Extract the attached zip file into your project directory.\n"
+                    "2. Open your terminal in that directory and install the dependencies:\n"
+                    "   pip install python-chess\n"
+                    "3. Run the application:\n"
+                    "   python3 main.py\n\n"
+                    "Systems standing by."
                 )
 
                 send_zip_via_resend(
@@ -250,7 +260,6 @@ def process_inbox_tasks():
 
 
 def background_poller():
-  """Runs indefinitely in the background, checking the inbox every 5 seconds."""
   while True:
     process_inbox_tasks()
     time.sleep(5)
@@ -266,8 +275,8 @@ def startup_event():
 def home():
   return {
       "status": (
-          "Jarvis Technologies OS (AI Intent Classification & 5-Sec Polling"
-          " Active, Boss)"
+          "Jarvis Technologies OS (Zip Attachment Fix & Instructions Active,"
+          " Boss)"
       )
   }
 
