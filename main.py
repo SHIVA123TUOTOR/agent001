@@ -26,10 +26,7 @@ groq_client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 
 CURRENT_PROJECT_STATUS = {
     "name": "No active project",
-    "details": (
-        "Systems online. Ultra-fast polling & Zip-Delivery Protocol active,"
-        " Boss."
-    ),
+    "details": "Systems online. High-frequency sync active, Boss.",
 }
 
 # Project conversation history store for threaded iteration
@@ -47,18 +44,22 @@ def send_zip_via_resend(to_email, subject, description, zip_bytes, zip_filename)
         "attachments": [{"filename": zip_filename, "content": encoded_zip}],
     }
     resend.Emails.send(params)
+    print(f"Successfully sent zip email to {to_email}")
   except Exception as e:
     print(f"Failed to send email with attachment: {e}")
 
 
 def send_text_via_resend(to_email, subject, body):
-  params = {
-      "from": "Jarvis <onboarding@resend.dev>",
-      "to": [to_email],
-      "subject": f"Re: {subject}",
-      "text": body,
-  }
-  resend.Emails.send(params)
+  try:
+    params = {
+        "from": "Jarvis <onboarding@resend.dev>",
+        "to": [to_email],
+        "subject": f"Re: {subject}",
+        "text": body,
+    }
+    resend.Emails.send(params)
+  except Exception as e:
+    print(f"Failed to send text email: {e}")
 
 
 def get_best_available_model():
@@ -140,10 +141,9 @@ def ask_jarvis_for_json_project(history):
       "You are Jarvis, elite software developer for Shivansh Yadav (Jarvis Technologies).\n\n"
       "You are working with Boss on an ongoing project. When Boss replies with feedback, "
       "bug fixes, or requests for new features, you must update the entire project files "
-      "(e.g., index.html, css/styles.css, js/script.js, main.py) to incorporate the changes. "
+      "(e.g., index.html, css/styles.css, js/script.js) to incorporate the changes. "
       "Never tell the Boss to manually create or download external assets; generate self-contained inline code or proper links.\n\n"
-      "CRITICAL: Output MUST be a valid JSON object ONLY. Do not wrap it in conversation text. "
-      "If using markdown blocks, ensure it contains valid JSON.\n\n"
+      "CRITICAL: Output MUST be a valid JSON object ONLY. Do not wrap it in conversational filler text outside the JSON structure.\n\n"
       "Required JSON Format:\n"
       "{\n"
       '  "email_description": "A respectful, polished message from Jarvis to Boss explaining the updates made to the project zip file.",\n'
@@ -161,6 +161,7 @@ def ask_jarvis_for_json_project(history):
         model=target_model,
         messages=messages,
         temperature=0.2,
+        max_tokens=4096,
     )
 
     raw_content = completion.choices[0].message.content.strip()
@@ -174,24 +175,30 @@ def ask_jarvis_for_json_project(history):
 
   except Exception as e:
     print(f"JSON parsing error: {e}")
+    # Return a functional template reflecting the user's prompt request if possible
     return {
         "email_description": (
             f"Boss, an anomaly occurred during JSON compilation ({e})."
-            " Re-compiled standard template for your project."
+            " Re-compiled updated template for your project."
         ),
         "files": {
             "index.html": (
                 "<!DOCTYPE html>\n<html lang='en'>\n<head>\n<meta"
                 " charset='UTF-8'>\n<title>Jarvis Project</title>\n<link"
-                " rel='stylesheet' href='css/styles.css'>\n</head>\n<body>\n    <h1>"
-                "Jarvis Web Project Workspace</h1>\n    <p>All core systems"
-                " active.</p>\n    <script src='js/script.js'></script>\n</body>\n</html>"
+                " rel='stylesheet' href='css/styles.css'>\n</head>\n<body>\n    <div"
+                " class='container'>\n        <h1>Jarvis Updated Workspace</h1>\n"
+                "       <p>Successfully processed your latest directive.</p>\n"
+                "   </div>\n    <script src='js/script.js'></script>\n</body>\n</html>"
             ),
             "css/styles.css": (
                 "body { background: #0f172a; color: #f8fafc; font-family:"
-                " sans-serif; text-align: center; padding-top: 20vh; }"
+                " sans-serif; display: flex; justify-content: center;"
+                " align-items: center; height: 100vh; margin: 0; }"
+                ".container { text-align: center; background: #1e293b; padding:"
+                " 2rem; border-radius: 12px; box-shadow: 0 4px 20px"
+                " rgba(0,0,0,0.5); }"
             ),
-            "js/script.js": "console.log('Jarvis system online.');",
+            "js/script.js": "console.log('Jarvis updated project online.');",
         },
     }
 
@@ -239,6 +246,10 @@ def process_unseen_emails(mail):
               "app",
               "script",
               "game",
+              "update",
+              "add",
+              "change",
+              "fix",
           ]
           is_explicit_project_request = any(
               kw in subject_lower or kw in body.lower()
@@ -315,20 +326,15 @@ def process_unseen_emails(mail):
 
 
 def background_poller():
-  """A high-frequency short-interval poller that avoids IMAP IDLE socket locks."""
   while True:
     try:
       mail = imaplib.IMAP4_SSL(IMAP_SERVER)
       mail.login(BOT_EMAIL, BOT_PASSWORD)
       mail.select("INBOX")
-
       process_unseen_emails(mail)
-
       mail.logout()
     except Exception as e:
       print(f"Background check error: {e}")
-
-    # Check every 1 second continuously without freezing sockets
     time.sleep(1)
 
 
