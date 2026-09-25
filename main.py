@@ -3,6 +3,7 @@ import email
 import email.policy
 import io
 import imaplib
+import json
 import os
 import re
 import threading
@@ -123,31 +124,45 @@ def ask_jarvis_conversational(prompt):
   return completion.choices[0].message.content
 
 
-def ask_jarvis_for_code_project(prompt):
+def ask_jarvis_for_json_project(prompt):
+  """Forces Jarvis to think like an architect and output PURE JSON containing
+
+  the email explanation and the exact file dictionary. No markdown wrapper
+  tricks allowed.
+  """
   target_model = get_best_available_model()
-  completion = groq_client.chat.completions.create(
-      model=target_model,
-      messages=[
-          {
-              "role": "system",
-              "content": (
-                  "You are Jarvis, elite software developer for Shivansh Yadav"
-                  " (Jarvis Technologies). When asked to build a project, you"
-                  " have full autonomy to decide the file structure, code, and"
-                  " instructions.\n\nYOU MUST format your entire response using"
-                  " these exact boundaries:\n\n=== EMAIL_BODY_START ===\n[Write"
-                  " a professional message to Boss explaining the project and"
-                  " how to run it]\n=== EMAIL_BODY_END ===\n\n=== FILE:"
-                  " main.py ===\n[Your Python code"
-                  " here]\n=== END_FILE ===\n\n(If you have more files, use ==="
-                  " FILE: filename.ext === and === END_FILE === for each)"
-              ),
-          },
-          {"role": "user", "content": prompt},
-      ],
-      temperature=0.2,
+  system_instruction = (
+      "You are Jarvis, elite software developer for Shivansh Yadav (Jarvis"
+      " Technologies). When asked to build a software project, you must design"
+      " the complete file structure and return your response strictly as a"
+      " valid JSON object with no extra text or markdown formatting outside the"
+      " JSON.\n\nRequired JSON Structure:\n{\n  \"email_description\": \"A"
+      " professional message to Boss explaining what was built and how to run"
+      " it.\",\n  \"files\": {\n    \"main.py\": \"# Python code here...\",\n   "
+      " \"requirements.txt\": \"package-name>=1.0.0\"\n  }\n}\n\nEnsure valid"
+      " JSON escaping for all code strings."
   )
-  return completion.choices[0].message.content
+
+  try:
+    completion = groq_client.chat.completions.create(
+        model=target_model,
+        messages=[
+            {"role": "system", "content": system_instruction},
+            {"role": "user", "content": prompt},
+        ],
+        response_format={"type": "json_object"},
+        temperature=0.2,
+    )
+    return json.loads(completion.choices[0].message.content)
+  except Exception as e:
+    # Fallback structure if JSON decoding fails
+    return {
+        "email_description": (
+            "Boss, an error occurred during JSON parsing, but a fallback"
+            " package has been compiled."
+        ),
+        "files": {"main.py": f"# Error context: {e}\n# Prompt was: {prompt}"},
+    }
 
 
 def process_inbox_tasks():
@@ -206,62 +221,29 @@ def process_inbox_tasks():
                     f"Compiling code architecture for directive: {subject}"
                 )
 
-                raw_ai_output = ask_jarvis_for_code_project(full_content)
+                # Get strict JSON response from Jarvis
+                project_data = ask_jarvis_for_json_project(full_content)
 
-                # 1. Extract Custom Email Body
-                email_match = re.search(
-                    r"===\s*EMAIL_BODY_START\s*===\s*(.*?)\s*===\s*EMAIL_BODY_END\s*===",
-                    raw_ai_output,
-                    re.DOTALL | re.IGNORECASE,
+                description = project_data.get(
+                    "email_description",
+                    f"Boss,\n\nYour requested package for '{subject}' has been"
+                    " compiled.",
                 )
-                if email_match:
-                  description = email_match.group(1).strip()
-                else:
-                  description = (
-                      f"Boss,\n\nYour requested package for '{subject}' has"
-                      " been compiled into the attached zip archive."
-                  )
-
-                # 2. Extract Files using flexible file boundary patterns (supports === FILE: name === ... === END_FILE === or similar variations)
-                file_pattern = re.compile(
-                    r"===\s*FILE:\s*(.+?)\s*===\s*(.*?)(?:===\s*END_FILE\s*===|===\s*END\s*FILE\s*===|$)",
-                    re.DOTALL | re.IGNORECASE,
+                files_dict = project_data.get(
+                    "files", {"main.py": "# No files generated"}
                 )
-                matches = file_pattern.findall(raw_ai_output)
 
+                # Programmatically build the ZIP file with zero guesswork
                 zip_buffer = io.BytesIO()
                 with zipfile.ZipFile(
                     zip_buffer, "w", zipfile.ZIP_DEFLATED
                 ) as zip_file:
-                  if matches:
-                    for filename, content in matches:
-                      # Strip markdown code block wrappers if the LLM put them inside the file tags
-                      clean_content = re.sub(
-                          r"^```[a-zA-Z]*\n", "", content.string if hasattr(content, 'string') else content.strip()
-                      )
-                      clean_content = re.sub(
-                          r"\n```\s*$", "", clean_content.strip()
-                      )
-                      zip_file.writestr(
-                          filename.strip(), clean_content
-                      )
-                  else:
-                    # Fallback parser: grab ALL standard markdown code blocks from the raw response and name them intelligently
-                    md_blocks = re.findall(
-                        r"```(?:python|javascript|html|css|cpp|json)?\s*\n(.*?)\n```",
-                        raw_ai_output,
-                        re.DOTALL,
-                    )
-                    if md_blocks:
-                      # If there's only one code block, name it main.py (or whatever fits the subject)
-                      ext = "py" if "python" in subject_lower or "script" in subject_lower or "game" in subject_lower else "txt"
-                      zip_file.writestr(f"main.{ext}", md_blocks[0].strip())
-                    else:
-                      zip_file.writestr("solution.txt", raw_ai_output)
+                  for filename, content in files_dict.items():
+                    zip_file.writestr(filename.strip(), str(content))
 
                 zip_buffer.seek(0)
                 safe_zip_name = (
-                    re.sub(r"[^a-zA-Z0-9_-]", "_", subject) + ".zip"
+                    re.sub(r"[^a-zA-z0-9_-]", "_", subject) + ".zip"
                 )
 
                 send_zip_via_resend(
@@ -297,9 +279,7 @@ def startup_event():
 @app.get("/")
 def home():
   return {
-      "status": (
-          "Jarvis Technologies OS (Robust Dynamic Parser Active, Boss)"
-      )
+      "status": "Jarvis Technologies OS (Strict JSON Architecture Active, Boss)"
   }
 
 
