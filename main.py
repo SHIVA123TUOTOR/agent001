@@ -3,6 +3,7 @@ import email
 import email.policy
 import io
 import imaplib
+import json
 import os
 import re
 import threading
@@ -133,13 +134,18 @@ def ask_jarvis_for_code_project(prompt):
               "content": (
                   "You are Jarvis, elite software developer for Shivansh Yadav"
                   " (Jarvis Technologies). When asked to build a project, you"
-                  " must output two sections clearly separated:\n\n1. THE"
-                  " INSTRUCTIONS: A short email body explaining how to install"
-                  " and run the project, wrapped inside:\n=== INSTRUCTIONS_START"
-                  " ===\n[Your installation/usage text here]\n=== INSTRUCTIONS_END"
-                  " ===\n\n2. THE FILES: Every code file wrapped using exact"
-                  " file tags like this:\n=== FILE: filename.ext ===\n[file code"
-                  " here]\n=== END FILE ==="
+                  " must decide everything dynamically. Output your response"
+                  " strictly divided into two sections using these exact tags:\n\n"
+                  "=== EMAIL_BODY_START ===\n"
+                  "[Write a professional email message to Boss explaining what"
+                  " you built and how to run it]\n"
+                  "=== EMAIL_BODY_END ===\n\n"
+                  "=== FILE: filename.ext ===\n"
+                  "[Code content for file 1]\n"
+                  "=== END FILE ===\n\n"
+                  "=== FILE: another_filename.ext ===\n"
+                  "[Code content for file 2]\n"
+                  "=== END FILE ==="
               ),
           },
           {"role": "user", "content": prompt},
@@ -207,21 +213,21 @@ def process_inbox_tasks():
 
                 raw_ai_output = ask_jarvis_for_code_project(full_content)
 
-                # 1. Dynamically extract AI-generated instructions
-                inst_match = re.search(
-                    r"===\s*INSTRUCTIONS_START\s*===\s*(.*?)\s*===\s*INSTRUCTIONS_END\s*===",
+                # 1. Extract AI's custom email message
+                email_match = re.search(
+                    r"===\s*EMAIL_BODY_START\s*===\s*(.*?)\s*===\s*EMAIL_BODY_END\s*===",
                     raw_ai_output,
                     re.DOTALL | re.IGNORECASE,
                 )
-                if inst_match:
-                  description = inst_match.group(1).strip()
+                if email_match:
+                  description = email_match.group(1).strip()
                 else:
                   description = (
                       f"Boss,\n\nYour requested package for '{subject}' has"
-                        " been compiled and attached as a zip archive."
+                      " been compiled into the attached zip archive."
                   )
 
-                # 2. Dynamically extract all AI-generated files
+                # 2. Extract all AI-generated files dynamically using file tags
                 file_pattern = re.compile(
                     r"===\s*FILE:\s*(.+?)\s*===\s*(.*?)(?:===\s*END\s*FILE\s*===|$)",
                     re.DOTALL | re.IGNORECASE,
@@ -234,6 +240,7 @@ def process_inbox_tasks():
                 ) as zip_file:
                   if matches:
                     for filename, content in matches:
+                      # Clean markdown wrapper ticks if the LLM accidentally added them inside the tags
                       clean_content = re.sub(
                           r"^```[a-zA-Z]*\n", "", content.strip()
                       )
@@ -244,7 +251,7 @@ def process_inbox_tasks():
                           filename.strip(), clean_content.strip()
                       )
                   else:
-                    # Fallback if specific file tags weren't used: parse markdown blocks or raw text
+                    # If specific file tags weren't caught, grab any markdown code blocks dynamically
                     md_blocks = re.findall(
                         r"```(?:python)?\s*\n(.*?)\n```",
                         raw_ai_output,
@@ -294,8 +301,7 @@ def startup_event():
 def home():
   return {
       "status": (
-          "Jarvis Technologies OS (Fully Dynamic AI Code & Instructions"
-          " Active, Boss)"
+          "Jarvis Technologies OS (Dynamic AI Output Parser Active, Boss)"
       )
   }
 
