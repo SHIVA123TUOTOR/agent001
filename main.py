@@ -7,7 +7,7 @@ import os
 import re
 import zipfile
 from fastapi import FastAPI
-from google import genai
+from groq import Groq
 import resend
 
 app = FastAPI()
@@ -17,9 +17,9 @@ BOT_EMAIL = os.environ.get("BOT_EMAIL")
 BOT_PASSWORD = os.environ.get("BOT_PASSWORD")
 MY_PERSONAL_EMAIL = os.environ.get("MY_PERSONAL_EMAIL")
 
-# Initialize API Keys
+# Initialize Clients
 resend.api_key = os.environ.get("RESEND_API_KEY")
-client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
+groq_client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 
 CURRENT_PROJECT_STATUS = {
     "name": "No active project",
@@ -50,24 +50,31 @@ def send_text_via_resend(to_email, subject, body):
 
 
 def ask_jarvis_for_project(prompt):
-  response = client.models.generate_content(
-      model="gemini-3.8-flash",
-      contents=(
-          "You are Jarvis, an elite personal AI software developer. "
-          f"The user requested this project/task: {prompt}\n\n"
-          "Build a complete, working project. Separate your files using this exact format:\n"
-          "=== FILE: filename.ext ===\n"
-          "[file code/content here]\n"
-          "==========================\n"
-          "Provide all necessary files (e.g., main.py, requirements.txt, README.md)."
-      ),
+  completion = groq_client.chat.completions.create(
+      model="llama-3.3-70b-versatile",
+      messages=[
+          {
+              "role": "system",
+              "content": (
+                  "You are Jarvis, an elite personal AI software developer. Build"
+                  " a complete, working project. Separate your files using"
+                  " this exact format:\n=== FILE: filename.ext ===\n[file"
+                  " code/content"
+                  " here]\n==========================\nProvide all"
+                  " necessary files (e.g., main.py, requirements.txt,"
+                  " README.md)."
+              ),
+          },
+          {"role": "user", "content": prompt},
+      ],
+      temperature=0.2,
   )
-  return response.text
+  return completion.choices[0].message.content
 
 
 @app.get("/")
 def home():
-  return {"status": "Jarvis Cloud Mail & Zip Server is Online!"}
+  return {"status": "Jarvis Cloud Mail & Zip Server (Powered by Groq) is Online!"}
 
 
 @app.get("/check")
