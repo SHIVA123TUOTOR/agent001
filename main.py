@@ -133,11 +133,13 @@ def ask_jarvis_for_code_project(prompt):
               "content": (
                   "You are Jarvis, elite software developer for Shivansh Yadav"
                   " (Jarvis Technologies). When asked to build a project, you"
-                  " MUST output files using this exact separator format:\n\n"
-                  "=== FILE: main.py ===\n[code here]\n=== END FILE ===\n\n=== FILE:"
-                  " requirements.txt ===\n[code here]\n=== END FILE ===\n\nDo"
-                  " not include conversational filler outside these file"
-                  " blocks."
+                  " must output two sections clearly separated:\n\n1. THE"
+                  " INSTRUCTIONS: A short email body explaining how to install"
+                  " and run the project, wrapped inside:\n=== INSTRUCTIONS_START"
+                  " ===\n[Your installation/usage text here]\n=== INSTRUCTIONS_END"
+                  " ===\n\n2. THE FILES: Every code file wrapped using exact"
+                  " file tags like this:\n=== FILE: filename.ext ===\n[file code"
+                  " here]\n=== END FILE ==="
               ),
           },
           {"role": "user", "content": prompt},
@@ -205,8 +207,21 @@ def process_inbox_tasks():
 
                 raw_ai_output = ask_jarvis_for_code_project(full_content)
 
-                # Robust parser supporting === FILE: name === ... === END FILE ===
-                # or fallback to standard markdown code blocks
+                # 1. Dynamically extract AI-generated instructions
+                inst_match = re.search(
+                    r"===\s*INSTRUCTIONS_START\s*===\s*(.*?)\s*===\s*INSTRUCTIONS_END\s*===",
+                    raw_ai_output,
+                    re.DOTALL | re.IGNORECASE,
+                )
+                if inst_match:
+                  description = inst_match.group(1).strip()
+                else:
+                  description = (
+                      f"Boss,\n\nYour requested package for '{subject}' has"
+                        " been compiled and attached as a zip archive."
+                  )
+
+                # 2. Dynamically extract all AI-generated files
                 file_pattern = re.compile(
                     r"===\s*FILE:\s*(.+?)\s*===\s*(.*?)(?:===\s*END\s*FILE\s*===|$)",
                     re.DOTALL | re.IGNORECASE,
@@ -219,7 +234,6 @@ def process_inbox_tasks():
                 ) as zip_file:
                   if matches:
                     for filename, content in matches:
-                      # Clean up any accidental markdown code wrappers inside the block
                       clean_content = re.sub(
                           r"^```[a-zA-Z]*\n", "", content.strip()
                       )
@@ -230,7 +244,7 @@ def process_inbox_tasks():
                           filename.strip(), clean_content.strip()
                       )
                   else:
-                    # Fallback: extract any markdown code blocks if specific headers failed
+                    # Fallback if specific file tags weren't used: parse markdown blocks or raw text
                     md_blocks = re.findall(
                         r"```(?:python)?\s*\n(.*?)\n```",
                         raw_ai_output,
@@ -239,23 +253,11 @@ def process_inbox_tasks():
                     if md_blocks:
                       zip_file.writestr("main.py", md_blocks[0].strip())
                     else:
-                      zip_file.writestr("main.py", raw_ai_output)
+                      zip_file.writestr("solution.py", raw_ai_output)
 
                 zip_buffer.seek(0)
                 safe_zip_name = (
                     re.sub(r"[^a-zA-Z0-9_-]", "_", subject) + ".zip"
-                )
-
-                description = (
-                    f"Boss,\n\n"
-                    f"Your requested package for '{subject}' has been successfully compiled into a structured zip archive and attached below.\n\n"
-                    "--- INSTALLATION & USAGE ---\n"
-                    "1. Extract the attached zip file into your project directory.\n"
-                    "2. Open your terminal in that directory and install dependencies:\n"
-                    "   pip install python-chess\n"
-                    "3. Run the application:\n"
-                    "   python3 main.py\n\n"
-                    "Systems standing by."
                 )
 
                 send_zip_via_resend(
@@ -292,7 +294,7 @@ def startup_event():
 def home():
   return {
       "status": (
-          "Jarvis Technologies OS (Robust Zip Parser & Clean Instructions"
+          "Jarvis Technologies OS (Fully Dynamic AI Code & Instructions"
           " Active, Boss)"
       )
   }
