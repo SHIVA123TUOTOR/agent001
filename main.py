@@ -89,12 +89,12 @@ def classify_intent(text):
                 "content": (
                     "You are an intent classifier for Jarvis. Read the user's"
                     " email and determine if they are asking for any form of"
-                    " code, script, application, tool, website, game, or"
-                    " software project to be built. If they want anything"
-                    " created, coded, or generated, reply with CODE. If it's"
-                    " purely a casual question, greeting, or status check,"
-                    " reply with CHAT. Reply with exactly one word: 'CODE' or"
-                    " 'CHAT'."
+                    " code, script, application, tool, website, game, HTML file,"
+                    " zip package, or software project to be built. If they want"
+                    " anything created, coded, generated, or returned as a file/zip,"
+                    " reply with CODE. If it's purely a casual question, greeting,"
+                    " or status check without project requests, reply with CHAT."
+                    " Reply with exactly one word: 'CODE' or 'CHAT'."
                 ),
             },
             {"role": "user", "content": text},
@@ -105,7 +105,7 @@ def classify_intent(text):
     result = completion.choices[0].message.content.strip().upper()
     return "CODE" if "CODE" in result else "CHAT"
   except Exception:
-    return "CODE"  # Default to CODE as a safer fallback if classification fails
+    return "CODE"
 
 
 def ask_jarvis_conversational(prompt):
@@ -134,18 +134,22 @@ def ask_jarvis_conversational(prompt):
 def ask_jarvis_for_json_project(prompt):
   target_model = get_best_available_model()
   system_instruction = (
-      "You are Jarvis, elite software developer for Shivansh Yadav (Jarvis"
-      " Technologies).\n\nWhen Boss asks for a project, code, or game, you must"
-      " design a fully functional, zero-error, standalone project. You must"
-      " handle all UI elements, logic, and self-contained assets directly"
-      " inside the code so no external manual file downloads are ever"
-      " required.\n\nReturn your response strictly as a valid JSON object with"
-      " NO markdown formatting or extra text outside the JSON. Format"
-      " required:\n{\n  \"email_description\": \"A respectful, polished"
-      " message from Jarvis to Boss explaining the completed project attached"
-      " as a zip file.\",\n  \"files\": {\n    \"main.py\": \"# Fully functional"
-      " Python code here...\",\n    \"requirements.txt\": \"# Dependencies if"
-      " needed\"\n  }\n}"
+      "You are Jarvis, elite software developer for Shivansh Yadav (Jarvis Technologies).\n\n"
+      "When Boss asks for a project, website, code, or game, you must design a fully functional, "
+      "zero-error, standalone project. Put all code directly into the appropriate files "
+      "(e.g., index.html, css/styles.css, js/script.js, main.py). Never tell the Boss to manually "
+      "create or download external assets; generate self-contained inline code or proper links.\n\n"
+      "Return your response STRICTLY as a valid JSON object with NO markdown formatting, "
+      "no backticks, and no extra text outside the JSON. \n\n"
+      "Required JSON Format:\n"
+      "{\n"
+      '  "email_description": "A respectful, polished message from Jarvis to Boss explaining the completed project attached as a zip file.",\n'
+      '  "files": {\n'
+      '    "index.html": "<!DOCTYPE html>...",\n'
+      '    "css/styles.css": "...",\n'
+      '    "js/script.js": "..."\n'
+      "  }\n"
+      "}"
   )
 
   try:
@@ -160,7 +164,7 @@ def ask_jarvis_for_json_project(prompt):
 
     raw_content = completion.choices[0].message.content.strip()
 
-    # Strip markdown code blocks if the model accidentally included them
+    # Strip markdown code blocks if the model accidentally includes them
     if raw_content.startswith("```"):
       raw_content = re.sub(r"^```(?:json)?\s*", "", raw_content)
       raw_content = re.sub(r"\s*```$", "", raw_content)
@@ -172,14 +176,13 @@ def ask_jarvis_for_json_project(prompt):
     return {
         "email_description": (
             f"Boss, an anomaly occurred during compilation: {e}. Reverting"
-            " to emergency functional template."
+            " to emergency template."
         ),
         "files": {
-            "main.py": (
-                "import tkinter as tk\n\nroot = tk.Tk()\nroot.title('Jarvis"
-                " Project')\nlabel = tk.Label(root, text='Hello Boss!')\nlabel.pack(padx=20, pady=20)\nroot.mainloop()"
-            ),
-            "requirements.txt": "",
+            "index.html": (
+                "<!DOCTYPE html><html><body><h1>Jarvis Fail-Safe"
+                " Website</h1></body></html>"
+            )
         },
     }
 
@@ -214,6 +217,22 @@ def process_inbox_tasks():
 
             full_content = f"Subject: {subject}\nBody: {body}"
 
+            # Force override: if the user asks for a zip, file, website, or code anywhere in the subject/body, treat as CODE
+            force_code_keywords = [
+                "zip",
+                "file",
+                "html",
+                "website",
+                "code",
+                "app",
+                "script",
+                "game",
+            ]
+            is_explicit_project_request = any(
+                kw in subject_lower or kw in body.lower()
+                for kw in force_code_keywords
+            )
+
             if (
                 "status" in subject_lower
                 or "progress" in subject_lower
@@ -228,7 +247,11 @@ def process_inbox_tasks():
               )
               send_text_via_resend(MY_PERSONAL_EMAIL, subject, reply_body)
             else:
-              intent = classify_intent(full_content)
+              intent = (
+                  "CODE"
+                  if is_explicit_project_request
+                  else classify_intent(full_content)
+              )
 
               if intent == "CHAT":
                 ai_response = ask_jarvis_conversational(full_content)
@@ -251,7 +274,7 @@ def process_inbox_tasks():
                     " has been compiled into the attached zip file.",
                 )
                 files_dict = project_data.get(
-                    "files", {"main.py": "# No files generated"}
+                    "files", {"index.html": "<h1>No files generated</h1>"}
                 )
 
                 # MANDATORY ZIP COMPILATION
