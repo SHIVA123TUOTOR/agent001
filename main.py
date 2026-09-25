@@ -32,7 +32,7 @@ def send_zip_via_resend(to_email, subject, description, zip_bytes, zip_filename)
   params = {
       "from": "Jarvis <onboarding@resend.dev>",
       "to": [to_email],
-      "subject": f"Jarvis Completed: {subject}",
+      "subject": f"Jarvis Code: {subject}",
       "text": description,
       "attachments": [{"filename": zip_filename, "content": encoded_zip}],
   }
@@ -50,51 +50,61 @@ def send_text_via_resend(to_email, subject, body):
 
 
 def get_best_available_model():
-  """Dynamically queries Groq for your account's active models
-
-  and selects a reliable text generation model.
-  """
   try:
     models_response = groq_client.models.list()
     available_ids = [m.id for m in models_response.data]
-
-    # Preferred list order
     preferences = [
         "llama-3.1-8b-instant",
         "llama-3.3-70b-versatile",
         "openai/gpt-oss-20b",
     ]
-
     for pref in preferences:
       if pref in available_ids:
         return pref
-
-    # Fallback to any model that contains text/llama/gpt if preferences miss
     for model_id in available_ids:
       if "whisper" not in model_id and "guard" not in model_id:
         return model_id
-
-    return "llama-3.1-8b-instant"  # Absolute fallback default
+    return "llama-3.1-8b-instant"
   except Exception:
     return "llama-3.1-8b-instant"
 
 
-def ask_jarvis_for_project(prompt):
+def ask_jarvis_conversational(prompt):
   target_model = get_best_available_model()
-
   completion = groq_client.chat.completions.create(
       model=target_model,
       messages=[
           {
               "role": "system",
               "content": (
-                  "You are Jarvis, an elite personal AI software developer. Build"
-                  " a complete, working project. Separate your files using"
-                  " this exact format:\n=== FILE: filename.ext ===\n[file"
-                  " code/content"
-                  " here]\n==========================\nProvide all"
-                  " necessary files (e.g., main.py, requirements.txt,"
-                  " README.md)."
+                  "You are Jarvis, an elite personal AI software developer and"
+                  " assistant. Answer the user's questions clearly, helpfully,"
+                  " and concisely via email."
+              ),
+          },
+          {"role": "user", "content": prompt},
+      ],
+      temperature=0.3,
+  )
+  return completion.choices[0].message.content
+
+
+def ask_jarvis_for_code_project(prompt):
+  target_model = get_best_available_model()
+  completion = groq_client.chat.completions.create(
+      model=target_model,
+      messages=[
+          {
+              "role": "system",
+              "content": (
+                  "You are Jarvis, an elite personal AI software developer."
+                  " When asked to build or write code for a project, provide"
+                  " clean, production-ready code files. You MUST separate every"
+                  " file using this exact block format:\n=== FILE:"
+                  " filename.ext ===\n[file code here]\n==========================\nProvide"
+                  " all necessary files (e.g. main.py, requirements.txt,"
+                  " README.md). Do not add any explanatory text outside of the"
+                  " file blocks."
               ),
           },
           {"role": "user", "content": prompt},
@@ -106,11 +116,7 @@ def ask_jarvis_for_project(prompt):
 
 @app.get("/")
 def home():
-  return {
-      "status": (
-          "Jarvis Cloud Mail & Zip Server (Groq Auto-Discovery) is Online!"
-      )
-  }
+  return {"status": "Jarvis Conversational & Code Server is Online!"}
 
 
 @app.get("/check")
@@ -133,7 +139,7 @@ def check_inbox_endpoint():
             msg = email.message_from_bytes(
                 response_part[1], policy=email.policy.default
             )
-            subject = msg["subject"] or "Untitled Project"
+            subject = msg["subject"] or "Untitled Request"
             subject_lower = subject.lower()
 
             body = ""
@@ -143,6 +149,19 @@ def check_inbox_endpoint():
                   body = part.get_payload(decode=True).decode(errors="ignore")
             else:
               body = msg.get_payload(decode=True).decode(errors="ignore")
+
+            # Check if user is asking for code/project vs conversational reply
+            code_keywords = [
+                "code",
+                "build",
+                "app",
+                "script",
+                "program",
+                "project",
+                "create",
+                "write a",
+            ]
+            is_code_request = any(kw in body.lower() for kw in code_keywords)
 
             if (
                 "status" in subject_lower
@@ -154,13 +173,23 @@ def check_inbox_endpoint():
                   f"Status Details:\n{CURRENT_PROJECT_STATUS['details']}"
               )
               send_text_via_resend(MY_PERSONAL_EMAIL, subject, reply_body)
-            else:
-              CURRENT_PROJECT_STATUS["name"] = subject
+
+            elif not is_code_request:
+              # Conversational question / answer response via email text
+              ai_response = ask_jarvis_conversational(body)
+              send_text_via_resend(MY_PERSONAL_EMAIL, subject, ai_response)
               CURRENT_PROJECT_STATUS["details"] = (
-                  f"Generating code files for request: {body}"
+                  f"Answered conversational email: {subject}"
               )
 
-              raw_ai_output = ask_jarvis_for_project(body)
+            else:
+              # Code generation task -> parse files and attach zip
+              CURRENT_PROJECT_STATUS["name"] = subject
+              CURRENT_PROJECT_STATUS["details"] = (
+                  f"Writing code files for request: {body}"
+              )
+
+              raw_ai_output = ask_jarvis_for_code_project(body)
 
               file_pattern = re.compile(
                   r"=== FILE: (.+?) ===\n(.*?)\n==========================",
@@ -176,7 +205,8 @@ def check_inbox_endpoint():
                   for filename, content in matches:
                     zip_file.writestr(filename.strip(), content.strip())
                 else:
-                  zip_file.writestr("project_output.txt", raw_ai_output)
+                  # Fallback if pattern is slightly off
+                  zip_file.writestr("solution.py", raw_ai_output)
 
               zip_buffer.seek(0)
               safe_zip_name = (
@@ -184,10 +214,8 @@ def check_inbox_endpoint():
               )
 
               description = (
-                  f"Hello! Here is the completed project you requested.\n\n"
-                  f"Project Name: {subject}\n"
-                  f"Original Request: {body}\n\n"
-                  f"All structured code files have been zipped and attached to this email."
+                  f"Hello Shivansh,\n\nHere is your requested code project: '{subject}'.\n\n"
+                  "All structured source files have been extracted cleanly into separate files and zipped in the attachment for direct use."
               )
 
               send_zip_via_resend(
@@ -198,7 +226,7 @@ def check_inbox_endpoint():
                   safe_zip_name,
               )
               CURRENT_PROJECT_STATUS["details"] = (
-                  f"Successfully completed and emailed zip: {safe_zip_name}"
+                  f"Successfully completed and emailed code zip: {safe_zip_name}"
               )
 
             mail.store(num, "+FLAGS", "\\Seen")
