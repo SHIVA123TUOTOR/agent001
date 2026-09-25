@@ -7,7 +7,6 @@ import json
 import os
 import re
 import threading
-import time
 import zipfile
 from fastapi import FastAPI
 from groq import Groq
@@ -27,7 +26,7 @@ groq_client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 CURRENT_PROJECT_STATUS = {
     "name": "No active project",
     "details": (
-        "Systems online. Strict Zip-Delivery Protocol & Iron Man manners"
+        "Systems online. Real-time IDLE listener & Zip-Delivery Protocol"
         " active, Boss."
     ),
 }
@@ -165,7 +164,6 @@ def ask_jarvis_for_json_project(history):
 
     raw_content = completion.choices[0].message.content.strip()
 
-    # Strip markdown code blocks if the model accidentally includes them
     if raw_content.startswith("```"):
       raw_content = re.sub(r"^```(?:json)?\s*", "", raw_content)
       raw_content = re.sub(r"\s*```$", "", raw_content)
@@ -188,169 +186,184 @@ def ask_jarvis_for_json_project(history):
     }
 
 
-def process_inbox_tasks():
+def process_unseen_emails(mail):
   global CURRENT_PROJECT_STATUS
-  try:
-    mail = imaplib.IMAP4_SSL(IMAP_SERVER)
-    mail.login(BOT_EMAIL, BOT_PASSWORD)
-    mail.select("INBOX")
+  status, messages = mail.search(None, "(UNSEEN)")
 
-    status, messages = mail.search(None, "(UNSEEN)")
+  if status == "OK" and messages[0]:
+    for num in messages[0].split():
+      status, data = mail.fetch(num, "(RFC822)")
+      for response_part in data:
+        if isinstance(response_part, tuple):
+          msg = email.message_from_bytes(
+              response_part[1], policy=email.policy.default
+          )
+          subject = msg["subject"] or "Untitled Directive"
+          clean_subject = re.sub(
+              r"^(Re:\s*)+", "", subject, flags=re.IGNORECASE
+          ).strip()
+          subject_lower = subject.lower()
 
-    if status == "OK" and messages[0]:
-      for num in messages[0].split():
-        status, data = mail.fetch(num, "(RFC822)")
-        for response_part in data:
-          if isinstance(response_part, tuple):
-            msg = email.message_from_bytes(
-                response_part[1], policy=email.policy.default
+          body = ""
+          if msg.is_multipart():
+            for part in msg.walk():
+              if part.get_content_type() == "text/plain":
+                body = part.get_payload(decode=True).decode(errors="ignore")
+          else:
+            body = msg.get_payload(decode=True).decode(errors="ignore")
+
+          if clean_subject not in PROJECT_CONVERSATIONS:
+            PROJECT_CONVERSATIONS[clean_subject] = []
+          PROJECT_CONVERSATIONS[clean_subject].append(
+              {"role": "user", "content": body}
+          )
+
+          full_content = f"Subject: {subject}\nBody: {body}"
+
+          force_code_keywords = [
+              "zip",
+              "file",
+              "html",
+              "website",
+              "code",
+              "app",
+              "script",
+              "game",
+          ]
+          is_explicit_project_request = any(
+              kw in subject_lower or kw in body.lower()
+              for kw in force_code_keywords
+          )
+
+          if (
+              "status" in subject_lower
+              or "progress" in subject_lower
+              or "what are you working on" in body.lower()
+          ):
+            reply_body = (
+                f"Systems Status Report, Boss (Shivansh Yadav):\n\n"
+                f"Active Directive: {CURRENT_PROJECT_STATUS['name']}\n"
+                f"Diagnostics: {CURRENT_PROJECT_STATUS['details']}\n"
+                "All systems locked and ready to deploy zip packages instantly."
             )
-            subject = msg["subject"] or "Untitled Directive"
-            # Normalize subject by removing 'Re: ' prefixes to group conversation threads
-            clean_subject = re.sub(
-                r"^(Re:\s*)+", "", subject, flags=re.IGNORECASE
-            ).strip()
-            subject_lower = subject.lower()
-
-            body = ""
-            if msg.is_multipart():
-              for part in msg.walk():
-                if part.get_content_type() == "text/plain":
-                  body = part.get_payload(decode=True).decode(errors="ignore")
-            else:
-              body = msg.get_payload(decode=True).decode(errors="ignore")
-
-            # Initialize or update conversation thread history
-            if clean_subject not in PROJECT_CONVERSATIONS:
-              PROJECT_CONVERSATIONS[clean_subject] = []
-            PROJECT_CONVERSATIONS[clean_subject].append(
-                {"role": "user", "content": body}
+            send_text_via_resend(MY_PERSONAL_EMAIL, subject, reply_body)
+          else:
+            intent = (
+                "CODE" if is_explicit_project_request else classify_intent(full_content)
             )
 
-            full_content = f"Subject: {subject}\nBody: {body}"
-
-            # Force override: if the user asks for a zip, file, website, or code anywhere in the subject/body, treat as CODE
-            force_code_keywords = [
-                "zip",
-                "file",
-                "html",
-                "website",
-                "code",
-                "app",
-                "script",
-                "game",
-            ]
-            is_explicit_project_request = any(
-                kw in subject_lower or kw in body.lower()
-                for kw in force_code_keywords
-            )
-
-            if (
-                "status" in subject_lower
-                or "progress" in subject_lower
-                or "what are you working on" in body.lower()
-            ):
-              reply_body = (
-                  f"Systems Status Report, Boss (Shivansh Yadav):\n\n"
-                  f"Active Directive: {CURRENT_PROJECT_STATUS['name']}\n"
-                  f"Diagnostics: {CURRENT_PROJECT_STATUS['details']}\n"
-                  "All systems locked and ready to deploy zip packages"
-                  " instantly."
+            if intent == "CHAT":
+              ai_response = ask_jarvis_conversational(full_content)
+              send_text_via_resend(MY_PERSONAL_EMAIL, subject, ai_response)
+              CURRENT_PROJECT_STATUS["details"] = (
+                  f"Handled inquiry from Boss: {subject}"
               )
-              send_text_via_resend(MY_PERSONAL_EMAIL, subject, reply_body)
             else:
-              intent = (
-                  "CODE"
-                  if is_explicit_project_request
-                  else classify_intent(full_content)
+              CURRENT_PROJECT_STATUS["name"] = clean_subject
+              CURRENT_PROJECT_STATUS["details"] = (
+                  f"Compiling project updates and generating zip package for:"
+                  f" {clean_subject}"
               )
 
-              if intent == "CHAT":
-                ai_response = ask_jarvis_conversational(full_content)
-                send_text_via_resend(MY_PERSONAL_EMAIL, subject, ai_response)
-                CURRENT_PROJECT_STATUS["details"] = (
-                    f"Handled inquiry from Boss: {subject}"
-                )
-              else:
-                CURRENT_PROJECT_STATUS["name"] = clean_subject
-                CURRENT_PROJECT_STATUS["details"] = (
-                    f"Compiling project updates and generating zip package"
-                    f" for: {clean_subject}"
-                )
+              project_data = ask_jarvis_for_json_project(
+                  PROJECT_CONVERSATIONS[clean_subject]
+              )
 
-                # Pass the full thread history to Jarvis
-                project_data = ask_jarvis_for_json_project(
-                    PROJECT_CONVERSATIONS[clean_subject]
-                )
+              description = project_data.get(
+                  "email_description",
+                  f"Boss,\n\nYour updated project package for '{clean_subject}'"
+                  " has been compiled into the attached zip file.",
+              )
+              files_dict = project_data.get(
+                  "files", {"index.html": "<h1>No files generated</h1>"}
+              )
 
-                description = project_data.get(
-                    "email_description",
-                    f"Boss,\n\nYour updated project package for '{clean_subject}'"
-                    " has been compiled into the attached zip file.",
-                )
-                files_dict = project_data.get(
-                    "files", {"index.html": "<h1>No files generated</h1>"}
-                )
+              zip_buffer = io.BytesIO()
+              with zipfile.ZipFile(
+                  zip_buffer, "w", zipfile.ZIP_DEFLATED
+              ) as zip_file:
+                for filename, content in files_dict.items():
+                  zip_file.writestr(filename.strip(), str(content))
 
-                # MANDATORY ZIP COMPILATION
-                zip_buffer = io.BytesIO()
-                with zipfile.ZipFile(
-                    zip_buffer, "w", zipfile.ZIP_DEFLATED
-                ) as zip_file:
-                  for filename, content in files_dict.items():
-                    zip_file.writestr(filename.strip(), str(content))
+              zip_buffer.seek(0)
+              safe_zip_name = (
+                  re.sub(r"[^a-zA-z0-9_-]", "_", clean_subject) + ".zip"
+              )
 
-                zip_buffer.seek(0)
-                safe_zip_name = (
-                    re.sub(r"[^a-zA-z0-9_-]", "_", clean_subject) + ".zip"
-                )
+              send_zip_via_resend(
+                  MY_PERSONAL_EMAIL,
+                  subject,
+                  description,
+                  zip_buffer.getvalue(),
+                  safe_zip_name,
+              )
+              CURRENT_PROJECT_STATUS["details"] = (
+                  f"Successfully delivered updated zip package: {safe_zip_name}"
+              )
 
-                # DISPATCH ZIP ATTACHMENT TO BOSS
-                send_zip_via_resend(
-                    MY_PERSONAL_EMAIL,
-                    subject,
-                    description,
-                    zip_buffer.getvalue(),
-                    safe_zip_name,
-                )
-                CURRENT_PROJECT_STATUS["details"] = (
-                    f"Successfully delivered updated zip package: {safe_zip_name}"
-                )
-
-            mail.store(num, "+FLAGS", "\\Seen")
-
-    mail.logout()
-  except Exception as e:
-    print(f"Background check error: {e}")
+          mail.store(num, "+FLAGS", "\\Seen")
 
 
-def background_poller():
+def background_listener():
+  """Listens to the inbox in real-time using IMAP IDLE (instant response)."""
   while True:
-    process_inbox_tasks()
-    time.sleep(5)
+    try:
+      mail = imaplib.IMAP4_SSL(IMAP_SERVER)
+      mail.login(BOT_EMAIL, BOT_PASSWORD)
+      mail.select("INBOX")
+
+      # First, process any unread emails sitting there right now
+      process_unseen_emails(mail)
+
+      print("Jarvis IDLE listener active. Awaiting incoming directives...")
+      while True:
+        try:
+          # Enter IDLE mode to wait for server push notifications
+          mail.idle()
+          # Wait up to 29 minutes before refreshing the IDLE connection
+          responses = mail.idle_check(timeout=1740)
+          mail.idle_done()
+
+          if responses:
+            # New email event detected instantly
+            process_unseen_emails(mail)
+        except Exception as idle_ex:
+          # If IDLE drops or times out, break to outer loop to reconnect cleanly
+          print(f"IDLE stream reset: {idle_ex}")
+          break
+
+    except Exception as e:
+      print(f"IMAP connection error: {e}. Reconnecting in 2 seconds...")
+      time.sleep(2)
 
 
 @app.on_event("startup")
 def startup_event():
-  poller_thread = threading.Thread(target=background_poller, daemon=True)
-  poller_thread.start()
+  listener_thread = threading.Thread(target=background_listener, daemon=True)
+  listener_thread.start()
 
 
 @app.get("/")
 def home():
   return {
       "status": (
-          "Jarvis Technologies OS (Mandatory Zip-Delivery Architecture"
-          " Active, Boss)"
+          "Jarvis Technologies OS (Real-Time IMAP IDLE Architecture Active, Boss)"
       )
   }
 
 
 @app.get("/check")
 def check_inbox_endpoint():
-  process_inbox_tasks()
-  return {
-      "success": True,
-      "message": "Manual inbox poll executed. Zip protocols verified.",
-      "sent_to": MY_PERSONAL_EMAIL,
-  }
+  try:
+    mail = imaplib.IMAP4_SSL(IMAP_SERVER)
+    mail.login(BOT_EMAIL, BOT_PASSWORD)
+    mail.select("INBOX")
+    process_unseen_emails(mail)
+    mail.logout()
+    return {
+        "success": True,
+        "message": "Manual inbox sync executed instantly.",
+        "sent_to": MY_PERSONAL_EMAIL,
+    }
+  except Exception as e:
+    return {"success": False, "error": str(e)}
