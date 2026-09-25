@@ -5,6 +5,8 @@ import io
 import imaplib
 import os
 import re
+import threading
+import time
 import zipfile
 from fastapi import FastAPI
 from groq import Groq
@@ -23,7 +25,7 @@ groq_client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 
 CURRENT_PROJECT_STATUS = {
     "name": "No active project",
-    "details": "Waiting for your first task email, Sir.",
+    "details": "Systems online. Polling inbox every 5 seconds, Boss.",
 }
 
 
@@ -118,20 +120,8 @@ def ask_jarvis_for_code_project(prompt):
   return completion.choices[0].message.content
 
 
-@app.get("/")
-def home():
-  return {
-      "status": (
-          "Jarvis Technologies OS (Online & Reporting to Shivansh Yadav)"
-      )
-  }
-
-
-@app.get("/check")
-def check_inbox_endpoint():
+def process_inbox_tasks():
   global CURRENT_PROJECT_STATUS
-  processed_count = 0
-
   try:
     mail = imaplib.IMAP4_SSL(IMAP_SERVER)
     mail.login(BOT_EMAIL, BOT_PASSWORD)
@@ -235,13 +225,41 @@ def check_inbox_endpoint():
               )
 
             mail.store(num, "+FLAGS", "\\Seen")
-            processed_count += 1
 
     mail.logout()
-    return {
-        "success": True,
-        "processed_tasks": processed_count,
-        "sent_to": MY_PERSONAL_EMAIL,
-    }
   except Exception as e:
-    return {"success": False, "error_details": str(e)}
+    print(f"Background check error: {e}")
+
+
+def background_poller():
+  """Runs indefinitely in the background, checking the inbox every 5 seconds."""
+  while True:
+    process_inbox_tasks()
+    time.sleep(5)  # Set to 5-second polling interval
+
+
+# Start the background polling thread when the FastAPI app boots up
+@app.on_event("startup")
+def startup_event():
+  poller_thread = threading.Thread(target=background_poller, daemon=True)
+  poller_thread.start()
+
+
+@app.get("/")
+def home():
+  return {
+      "status": (
+          "Jarvis Technologies OS (Lightning 5-Sec Polling Active, Boss)"
+      )
+  }
+
+
+@app.get("/check")
+def check_inbox_endpoint():
+  """Manual trigger fallback endpoint"""
+  process_inbox_tasks()
+  return {
+      "success": True,
+      "message": "Manual inbox check executed.",
+      "sent_to": MY_PERSONAL_EMAIL,
+  }
