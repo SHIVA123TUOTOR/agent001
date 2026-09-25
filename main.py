@@ -141,8 +141,8 @@ def ask_jarvis_for_json_project(history):
       "bug fixes, or requests for new features, you must update the entire project files "
       "(e.g., index.html, css/styles.css, js/script.js, main.py) to incorporate the changes. "
       "Never tell the Boss to manually create or download external assets; generate self-contained inline code or proper links.\n\n"
-      "Return your response STRICTLY as a valid JSON object with NO markdown formatting, "
-      "no backticks, and no extra text outside the JSON. \n\n"
+      "CRITICAL: Output MUST be a valid JSON object ONLY. Do not wrap it in conversation text. "
+      "If using markdown blocks, ensure it contains valid JSON.\n\n"
       "Required JSON Format:\n"
       "{\n"
       '  "email_description": "A respectful, polished message from Jarvis to Boss explaining the updates made to the project zip file.",\n'
@@ -164,24 +164,35 @@ def ask_jarvis_for_json_project(history):
 
     raw_content = completion.choices[0].message.content.strip()
 
-    if raw_content.startswith("```"):
-      raw_content = re.sub(r"^```(?:json)?\s*", "", raw_content)
-      raw_content = re.sub(r"\s*```$", "", raw_content)
+    # Robust JSON extraction using regex to find the outermost braces if extra text slips in
+    if "{" in raw_content and "}" in raw_content:
+      json_match = re.search(r"(\{.*\})", raw_content, re.DOTALL)
+      if json_match:
+        raw_content = json_match.group(1)
 
     return json.loads(raw_content)
 
   except Exception as e:
     print(f"JSON parsing error: {e}")
+    # Fallback to a functional basic web page instead of the fail-safe error message
     return {
         "email_description": (
-            f"Boss, an anomaly occurred during compilation: {e}. Reverting"
-            " to emergency template."
+            f"Boss, an anomaly occurred during JSON compilation ({e})."
+            " Re-compiled standard template for your project."
         ),
         "files": {
             "index.html": (
-                "<!DOCTYPE html><html><body><h1>Jarvis Fail-Safe"
-                " Website</h1></body></html>"
-            )
+                "<!DOCTYPE html>\n<html lang='en'>\n<head>\n<meta"
+                " charset='UTF-8'>\n<title>Jarvis Project</title>\n<link"
+                " rel='stylesheet' href='css/styles.css'>\n</head>\n<body>\n    <h1>"
+                "Jarvis Web Project Workspace</h1>\n    <p>All core systems"
+                " active.</p>\n    <script src='js/script.js'></script>\n</body>\n</html>"
+            ),
+            "css/styles.css": (
+                "body { background: #0f172a; color: #f8fafc; font-family:"
+                " sans-serif; text-align: center; padding-top: 20vh; }"
+            ),
+            "js/script.js": "console.log('Jarvis system online.');",
         },
     }
 
@@ -305,30 +316,24 @@ def process_unseen_emails(mail):
 
 
 def background_listener():
-  """Listens to the inbox in real-time using IMAP IDLE (instant response)."""
   while True:
     try:
       mail = imaplib.IMAP4_SSL(IMAP_SERVER)
       mail.login(BOT_EMAIL, BOT_PASSWORD)
       mail.select("INBOX")
 
-      # First, process any unread emails sitting there right now
       process_unseen_emails(mail)
 
       print("Jarvis IDLE listener active. Awaiting incoming directives...")
       while True:
         try:
-          # Enter IDLE mode to wait for server push notifications
           mail.idle()
-          # Wait up to 29 minutes before refreshing the IDLE connection
           responses = mail.idle_check(timeout=1740)
           mail.idle_done()
 
           if responses:
-            # New email event detected instantly
             process_unseen_emails(mail)
         except Exception as idle_ex:
-          # If IDLE drops or times out, break to outer loop to reconnect cleanly
           print(f"IDLE stream reset: {idle_ex}")
           break
 
