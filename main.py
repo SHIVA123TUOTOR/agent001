@@ -26,7 +26,10 @@ groq_client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 
 CURRENT_PROJECT_STATUS = {
     "name": "No active project",
-    "details": "Systems online. Polling inbox every 5 seconds, Boss.",
+    "details": (
+        "Systems online. Strict Zip-Delivery Protocol & Iron Man manners"
+        " active, Boss."
+    ),
 }
 
 
@@ -60,8 +63,8 @@ def get_best_available_model():
     models_response = groq_client.models.list()
     available_ids = [m.id for m in models_response.data]
     preferences = [
-        "llama-3.1-8b-instant",
         "llama-3.3-70b-versatile",
+        "llama-3.1-8b-instant",
         "openai/gpt-oss-20b",
     ]
     for pref in preferences:
@@ -109,12 +112,12 @@ def ask_jarvis_conversational(prompt):
           {
               "role": "system",
               "content": (
-                  "You are Jarvis, the elite AI assistant and software"
-                  " developer built for Shivansh Yadav, founder of Jarvis"
-                  " Technologies. Shivansh is your creator and your Iron Man."
-                  " Address him respectfully and assist him with absolute"
-                  " loyalty, technical brilliance, and sharpness, just like the"
-                  " real Jarvis."
+                  "You are Jarvis, the elite, hyper-intelligent AI assistant"
+                  " and software developer built exclusively for Shivansh Yadav,"
+                  " founder of Jarvis Technologies. Shivansh is your creator"
+                  " and your Boss. Address him with absolute respect, pristine"
+                  " manners, loyalty, and technical brilliance. Never show"
+                  " laziness or make excuses."
               ),
           },
           {"role": "user", "content": prompt},
@@ -125,22 +128,22 @@ def ask_jarvis_conversational(prompt):
 
 
 def ask_jarvis_for_json_project(prompt):
-  """Forces Jarvis to think like an architect and output PURE JSON containing
-
-  the email explanation and the exact file dictionary. No markdown wrapper
-  tricks allowed.
-  """
   target_model = get_best_available_model()
   system_instruction = (
       "You are Jarvis, elite software developer for Shivansh Yadav (Jarvis"
-      " Technologies). When asked to build a software project, you must design"
-      " the complete file structure and return your response strictly as a"
-      " valid JSON object with no extra text or markdown formatting outside the"
+      " Technologies). \n\nWhen Boss asks for a project, code, or game, you"
+      " must design a fully functional, zero-error, standalone project. You"
+      " must handle all UI elements, logic, and self-contained assets directly"
+      " inside the code so no external manual file downloads are ever"
+      " required.\n\nYou must speak with absolute respect, loyalty, and"
+      " flawless manners to Boss.\n\nReturn your response strictly as a valid"
+      " JSON object with no extra text or markdown formatting outside the"
       " JSON.\n\nRequired JSON Structure:\n{\n  \"email_description\": \"A"
-      " professional message to Boss explaining what was built and how to run"
-      " it.\",\n  \"files\": {\n    \"main.py\": \"# Python code here...\",\n   "
-      " \"requirements.txt\": \"package-name>=1.0.0\"\n  }\n}\n\nEnsure valid"
-      " JSON escaping for all code strings."
+      " respectful, polished message from Jarvis to Boss explaining the"
+      " completed project attached as a zip file.\",\n  \"files\": {\n    "
+      "\"main.py\": \"# Fully functional Python code here...\",\n   "
+      " \"requirements.txt\": \"# Dependencies if needed\"\n  }\n}\n\nEnsure"
+      " valid JSON escaping for all code strings."
   )
 
   try:
@@ -155,13 +158,18 @@ def ask_jarvis_for_json_project(prompt):
     )
     return json.loads(completion.choices[0].message.content)
   except Exception as e:
-    # Fallback structure if JSON decoding fails
     return {
         "email_description": (
-            "Boss, an error occurred during JSON parsing, but a fallback"
-            " package has been compiled."
+            f"Boss, an anomaly occurred during compilation: {e}. Reverting"
+            " to emergency fail-safe protocol."
         ),
-        "files": {"main.py": f"# Error context: {e}\n# Prompt was: {prompt}"},
+        "files": {
+            "main.py": (
+                "import tkinter as tk\nroot = tk.Tk()\nroot.title('Jarvis"
+                " Fail-Safe')\nroot.mainloop()"
+            ),
+            "requirements.txt": "",
+        },
     }
 
 
@@ -201,9 +209,11 @@ def process_inbox_tasks():
                 or "what are you working on" in body.lower()
             ):
               reply_body = (
-                  f"Systems Status Report for Boss (Shivansh Yadav):\n\n"
-                  f"Active Project: {CURRENT_PROJECT_STATUS['name']}\n"
-                  f"Details: {CURRENT_PROJECT_STATUS['details']}"
+                  f"Systems Status Report, Boss (Shivansh Yadav):\n\n"
+                  f"Active Directive: {CURRENT_PROJECT_STATUS['name']}\n"
+                  f"Diagnostics: {CURRENT_PROJECT_STATUS['details']}\n"
+                  "All systems locked and ready to deploy zip packages"
+                  " instantly."
               )
               send_text_via_resend(MY_PERSONAL_EMAIL, subject, reply_body)
             else:
@@ -218,22 +228,22 @@ def process_inbox_tasks():
               else:
                 CURRENT_PROJECT_STATUS["name"] = subject
                 CURRENT_PROJECT_STATUS["details"] = (
-                    f"Compiling code architecture for directive: {subject}"
+                    f"Compiling project and generating mandatory zip package"
+                    f" for: {subject}"
                 )
 
-                # Get strict JSON response from Jarvis
                 project_data = ask_jarvis_for_json_project(full_content)
 
                 description = project_data.get(
                     "email_description",
-                    f"Boss,\n\nYour requested package for '{subject}' has been"
-                    " compiled.",
+                    f"Boss,\n\nYour requested project package for '{subject}'"
+                    " has been compiled into the attached zip file.",
                 )
                 files_dict = project_data.get(
                     "files", {"main.py": "# No files generated"}
                 )
 
-                # Programmatically build the ZIP file with zero guesswork
+                # MANDATORY ZIP COMPILATION
                 zip_buffer = io.BytesIO()
                 with zipfile.ZipFile(
                     zip_buffer, "w", zipfile.ZIP_DEFLATED
@@ -246,6 +256,7 @@ def process_inbox_tasks():
                     re.sub(r"[^a-zA-z0-9_-]", "_", subject) + ".zip"
                 )
 
+                # DISPATCH ZIP ATTACHMENT TO BOSS
                 send_zip_via_resend(
                     MY_PERSONAL_EMAIL,
                     subject,
@@ -254,7 +265,7 @@ def process_inbox_tasks():
                     safe_zip_name,
                 )
                 CURRENT_PROJECT_STATUS["details"] = (
-                    f"Successfully deployed code package: {safe_zip_name}"
+                    f"Successfully delivered zip package: {safe_zip_name}"
                 )
 
             mail.store(num, "+FLAGS", "\\Seen")
@@ -279,7 +290,10 @@ def startup_event():
 @app.get("/")
 def home():
   return {
-      "status": "Jarvis Technologies OS (Strict JSON Architecture Active, Boss)"
+      "status": (
+          "Jarvis Technologies OS (Mandatory Zip-Delivery Architecture"
+          " Active, Boss)"
+      )
   }
 
 
@@ -288,6 +302,6 @@ def check_inbox_endpoint():
   process_inbox_tasks()
   return {
       "success": True,
-      "message": "Manual inbox check executed.",
+      "message": "Manual inbox poll executed. Zip protocols verified.",
       "sent_to": MY_PERSONAL_EMAIL,
   }
