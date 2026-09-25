@@ -87,10 +87,14 @@ def classify_intent(text):
             {
                 "role": "system",
                 "content": (
-                    "You are an intent classifier. Read the user's message and"
-                    " decide if they are asking for code, a script, an app, a"
-                    " game, or a software project to be built. Reply with"
-                    " exactly one word: 'CODE' or 'CHAT'."
+                    "You are an intent classifier for Jarvis. Read the user's"
+                    " email and determine if they are asking for any form of"
+                    " code, script, application, tool, website, game, or"
+                    " software project to be built. If they want anything"
+                    " created, coded, or generated, reply with CODE. If it's"
+                    " purely a casual question, greeting, or status check,"
+                    " reply with CHAT. Reply with exactly one word: 'CODE' or"
+                    " 'CHAT'."
                 ),
             },
             {"role": "user", "content": text},
@@ -101,7 +105,7 @@ def classify_intent(text):
     result = completion.choices[0].message.content.strip().upper()
     return "CODE" if "CODE" in result else "CHAT"
   except Exception:
-    return "CHAT"
+    return "CODE"  # Default to CODE as a safer fallback if classification fails
 
 
 def ask_jarvis_conversational(prompt):
@@ -131,19 +135,17 @@ def ask_jarvis_for_json_project(prompt):
   target_model = get_best_available_model()
   system_instruction = (
       "You are Jarvis, elite software developer for Shivansh Yadav (Jarvis"
-      " Technologies). \n\nWhen Boss asks for a project, code, or game, you"
-      " must design a fully functional, zero-error, standalone project. You"
-      " must handle all UI elements, logic, and self-contained assets directly"
+      " Technologies).\n\nWhen Boss asks for a project, code, or game, you must"
+      " design a fully functional, zero-error, standalone project. You must"
+      " handle all UI elements, logic, and self-contained assets directly"
       " inside the code so no external manual file downloads are ever"
-      " required.\n\nYou must speak with absolute respect, loyalty, and"
-      " flawless manners to Boss.\n\nReturn your response strictly as a valid"
-      " JSON object with no extra text or markdown formatting outside the"
-      " JSON.\n\nRequired JSON Structure:\n{\n  \"email_description\": \"A"
-      " respectful, polished message from Jarvis to Boss explaining the"
-      " completed project attached as a zip file.\",\n  \"files\": {\n    "
-      "\"main.py\": \"# Fully functional Python code here...\",\n   "
-      " \"requirements.txt\": \"# Dependencies if needed\"\n  }\n}\n\nEnsure"
-      " valid JSON escaping for all code strings."
+      " required.\n\nReturn your response strictly as a valid JSON object with"
+      " NO markdown formatting or extra text outside the JSON. Format"
+      " required:\n{\n  \"email_description\": \"A respectful, polished"
+      " message from Jarvis to Boss explaining the completed project attached"
+      " as a zip file.\",\n  \"files\": {\n    \"main.py\": \"# Fully functional"
+      " Python code here...\",\n    \"requirements.txt\": \"# Dependencies if"
+      " needed\"\n  }\n}"
   )
 
   try:
@@ -153,20 +155,29 @@ def ask_jarvis_for_json_project(prompt):
             {"role": "system", "content": system_instruction},
             {"role": "user", "content": prompt},
         ],
-        response_format={"type": "json_object"},
         temperature=0.2,
     )
-    return json.loads(completion.choices[0].message.content)
+
+    raw_content = completion.choices[0].message.content.strip()
+
+    # Strip markdown code blocks if the model accidentally included them
+    if raw_content.startswith("```"):
+      raw_content = re.sub(r"^```(?:json)?\s*", "", raw_content)
+      raw_content = re.sub(r"\s*```$", "", raw_content)
+
+    return json.loads(raw_content)
+
   except Exception as e:
+    print(f"JSON parsing error: {e}")
     return {
         "email_description": (
             f"Boss, an anomaly occurred during compilation: {e}. Reverting"
-            " to emergency fail-safe protocol."
+            " to emergency functional template."
         ),
         "files": {
             "main.py": (
-                "import tkinter as tk\nroot = tk.Tk()\nroot.title('Jarvis"
-                " Fail-Safe')\nroot.mainloop()"
+                "import tkinter as tk\n\nroot = tk.Tk()\nroot.title('Jarvis"
+                " Project')\nlabel = tk.Label(root, text='Hello Boss!')\nlabel.pack(padx=20, pady=20)\nroot.mainloop()"
             ),
             "requirements.txt": "",
         },
