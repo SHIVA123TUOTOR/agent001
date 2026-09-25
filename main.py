@@ -49,9 +49,41 @@ def send_text_via_resend(to_email, subject, body):
   resend.Emails.send(params)
 
 
+def get_best_available_model():
+  """Dynamically queries Groq for your account's active models
+
+  and selects a reliable text generation model.
+  """
+  try:
+    models_response = groq_client.models.list()
+    available_ids = [m.id for m in models_response.data]
+
+    # Preferred list order
+    preferences = [
+        "llama-3.1-8b-instant",
+        "llama-3.3-70b-versatile",
+        "openai/gpt-oss-20b",
+    ]
+
+    for pref in preferences:
+      if pref in available_ids:
+        return pref
+
+    # Fallback to any model that contains text/llama/gpt if preferences miss
+    for model_id in available_ids:
+      if "whisper" not in model_id and "guard" not in model_id:
+        return model_id
+
+    return "llama-3.1-8b-instant"  # Absolute fallback default
+  except Exception:
+    return "llama-3.1-8b-instant"
+
+
 def ask_jarvis_for_project(prompt):
+  target_model = get_best_available_model()
+
   completion = groq_client.chat.completions.create(
-      model="llama-3.3-70b-versatile",
+      model=target_model,
       messages=[
           {
               "role": "system",
@@ -74,7 +106,11 @@ def ask_jarvis_for_project(prompt):
 
 @app.get("/")
 def home():
-  return {"status": "Jarvis Cloud Mail & Zip Server (Powered by Groq) is Online!"}
+  return {
+      "status": (
+          "Jarvis Cloud Mail & Zip Server (Groq Auto-Discovery) is Online!"
+      )
+  }
 
 
 @app.get("/check")
