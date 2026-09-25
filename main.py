@@ -80,7 +80,7 @@ def classify_intent(text):
         messages=[
             {
                 "role": "system",
-                (
+                "content": (
                     "You are an intent classifier. Read the user's message and"
                     " decide if they are asking for code, a script, an app, a"
                     " game, or a software project to be built. Reply with"
@@ -189,7 +189,6 @@ def process_inbox_tasks():
               )
               send_text_via_resend(MY_PERSONAL_EMAIL, subject, reply_body)
             else:
-              # Let Groq decide whether this is a code request or conversational chat
               intent = classify_intent(full_content)
 
               if intent == "CHAT":
