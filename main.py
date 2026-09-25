@@ -26,7 +26,7 @@ groq_client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 
 CURRENT_PROJECT_STATUS = {
     "name": "No active project",
-    "details": "Systems online. Debug sync active, Boss.",
+    "details": "Systems online. Background sync active, Boss.",
 }
 
 PROJECT_CONVERSATIONS = {}
@@ -337,6 +337,7 @@ def process_unseen_emails(mail):
 
 
 def background_poller():
+  print("Background inbox listener thread started successfully.")
   while True:
     try:
       mail = imaplib.IMAP4_SSL(IMAP_SERVER)
@@ -358,7 +359,9 @@ def startup_event():
 @app.get("/")
 def home():
   return {
-      "status": "Jarvis Technologies OS (Debug Trace Mode Active, Boss)"
+      "status": (
+          "Jarvis Technologies OS (Background Thread Verified Active, Boss)"
+      )
   }
 
 
@@ -372,7 +375,9 @@ def check_inbox_endpoint():
     mail.logout()
     return {
         "success": True,
-        "message": "Manual debug inbox sync executed.",
+        "message": (
+            "Manual inbox sync executed via endpoint. Check logs for details."
+        ),
         "sent_to": MY_PERSONAL_EMAIL,
     }
   except Exception as e:
