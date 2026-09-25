@@ -3,7 +3,6 @@ import email
 import email.policy
 import io
 import imaplib
-import json
 import os
 import re
 import threading
@@ -134,18 +133,14 @@ def ask_jarvis_for_code_project(prompt):
               "content": (
                   "You are Jarvis, elite software developer for Shivansh Yadav"
                   " (Jarvis Technologies). When asked to build a project, you"
-                  " must decide everything dynamically. Output your response"
-                  " strictly divided into two sections using these exact tags:\n\n"
-                  "=== EMAIL_BODY_START ===\n"
-                  "[Write a professional email message to Boss explaining what"
-                  " you built and how to run it]\n"
-                  "=== EMAIL_BODY_END ===\n\n"
-                  "=== FILE: filename.ext ===\n"
-                  "[Code content for file 1]\n"
-                  "=== END FILE ===\n\n"
-                  "=== FILE: another_filename.ext ===\n"
-                  "[Code content for file 2]\n"
-                  "=== END FILE ==="
+                  " have full autonomy to decide the file structure, code, and"
+                  " instructions.\n\nYOU MUST format your entire response using"
+                  " these exact boundaries:\n\n=== EMAIL_BODY_START ===\n[Write"
+                  " a professional message to Boss explaining the project and"
+                  " how to run it]\n=== EMAIL_BODY_END ===\n\n=== FILE:"
+                  " main.py ===\n[Your Python code"
+                  " here]\n=== END_FILE ===\n\n(If you have more files, use ==="
+                  " FILE: filename.ext === and === END_FILE === for each)"
               ),
           },
           {"role": "user", "content": prompt},
@@ -213,7 +208,7 @@ def process_inbox_tasks():
 
                 raw_ai_output = ask_jarvis_for_code_project(full_content)
 
-                # 1. Extract AI's custom email message
+                # 1. Extract Custom Email Body
                 email_match = re.search(
                     r"===\s*EMAIL_BODY_START\s*===\s*(.*?)\s*===\s*EMAIL_BODY_END\s*===",
                     raw_ai_output,
@@ -227,9 +222,9 @@ def process_inbox_tasks():
                       " been compiled into the attached zip archive."
                   )
 
-                # 2. Extract all AI-generated files dynamically using file tags
+                # 2. Extract Files using flexible file boundary patterns (supports === FILE: name === ... === END_FILE === or similar variations)
                 file_pattern = re.compile(
-                    r"===\s*FILE:\s*(.+?)\s*===\s*(.*?)(?:===\s*END\s*FILE\s*===|$)",
+                    r"===\s*FILE:\s*(.+?)\s*===\s*(.*?)(?:===\s*END_FILE\s*===|===\s*END\s*FILE\s*===|$)",
                     re.DOTALL | re.IGNORECASE,
                 )
                 matches = file_pattern.findall(raw_ai_output)
@@ -240,27 +235,29 @@ def process_inbox_tasks():
                 ) as zip_file:
                   if matches:
                     for filename, content in matches:
-                      # Clean markdown wrapper ticks if the LLM accidentally added them inside the tags
+                      # Strip markdown code block wrappers if the LLM put them inside the file tags
                       clean_content = re.sub(
-                          r"^```[a-zA-Z]*\n", "", content.strip()
+                          r"^```[a-zA-Z]*\n", "", content.string if hasattr(content, 'string') else content.strip()
                       )
                       clean_content = re.sub(
-                          r"\n```\s*$", "", clean_content
+                          r"\n```\s*$", "", clean_content.strip()
                       )
                       zip_file.writestr(
-                          filename.strip(), clean_content.strip()
+                          filename.strip(), clean_content
                       )
                   else:
-                    # If specific file tags weren't caught, grab any markdown code blocks dynamically
+                    # Fallback parser: grab ALL standard markdown code blocks from the raw response and name them intelligently
                     md_blocks = re.findall(
-                        r"```(?:python)?\s*\n(.*?)\n```",
+                        r"```(?:python|javascript|html|css|cpp|json)?\s*\n(.*?)\n```",
                         raw_ai_output,
                         re.DOTALL,
                     )
                     if md_blocks:
-                      zip_file.writestr("main.py", md_blocks[0].strip())
+                      # If there's only one code block, name it main.py (or whatever fits the subject)
+                      ext = "py" if "python" in subject_lower or "script" in subject_lower or "game" in subject_lower else "txt"
+                      zip_file.writestr(f"main.{ext}", md_blocks[0].strip())
                     else:
-                      zip_file.writestr("solution.py", raw_ai_output)
+                      zip_file.writestr("solution.txt", raw_ai_output)
 
                 zip_buffer.seek(0)
                 safe_zip_name = (
@@ -301,7 +298,7 @@ def startup_event():
 def home():
   return {
       "status": (
-          "Jarvis Technologies OS (Dynamic AI Output Parser Active, Boss)"
+          "Jarvis Technologies OS (Robust Dynamic Parser Active, Boss)"
       )
   }
 
