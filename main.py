@@ -78,9 +78,9 @@ def check_inbox_endpoint():
   try:
     mail = imaplib.IMAP4_SSL(IMAP_SERVER)
     mail.login(BOT_EMAIL, BOT_PASSWORD)
-    mail.select("inbox")
+    mail.select("INBOX")
 
-    status, messages = mail.search(None, "UNSEEN")
+    status, messages = mail.search(None, "(UNSEEN)")
 
     if status == "OK" and messages[0]:
       for num in messages[0].split():
